@@ -18,19 +18,45 @@ export default function TripDetails() {
   const location = useLocation();
   const navigate = useNavigate();
   const tripFromNav = location.state?.trip;
-  const tripId = location.state?.tripId || '';
+  const [resolvedTripId, setResolvedTripId] = useState(location.state?.tripId || '');
+  const [resolvedTrip, setResolvedTrip] = useState(location.state?.trip || null);
+  const [resolving, setResolving] = useState(!location.state?.tripId);
+
+  const tripId = resolvedTripId;
+  const tripFromNavActive = resolvedTrip || tripFromNav;
 
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Auto-select latest trip when no trip_id provided
+  useEffect(() => {
+    if (resolvedTripId) { setResolving(false); return; }
+    setResolving(true);
+    triggerWorkflow('list_trips', { user_id: 'U001' }).then(res => {
+      if (res.success && res.trips?.length) {
+        const sorted = [...res.trips].sort((a, b) => b.end_date.localeCompare(a.end_date));
+        const latest = sorted[0];
+        setResolvedTripId(latest.trip_id);
+        setResolvedTrip(latest);
+      } else {
+        setError('No trips available');
+        setResolving(false);
+      }
+    }).catch(() => {
+      setError('Unable to load trips');
+      setResolving(false);
+    });
+  }, [resolvedTripId]);
+
   const fetchSummary = async () => {
+    if (!resolvedTripId) return;
     setLoading(true);
     setError(null);
     try {
-      const budget = tripFromNav?.budget || 0;
-      const res = await triggerWorkflow('trip_summary', { trip_id: tripId, budget });
+      const budget = tripFromNavActive?.budget || 0;
+      const res = await triggerWorkflow('trip_summary', { trip_id: resolvedTripId, budget });
       if (res.success) {
         setSummary(res);
       } else {
@@ -40,10 +66,11 @@ export default function TripDetails() {
       setError(e.message || 'Failed to load trip summary');
     } finally {
       setLoading(false);
+      setResolving(false);
     }
   };
 
-  useEffect(() => { fetchSummary(); }, [tripId]);
+  useEffect(() => { if (resolvedTripId) fetchSummary(); }, [resolvedTripId]);
 
   const handleComplete = async () => {
     setCompleting(true);
@@ -91,10 +118,10 @@ export default function TripDetails() {
   const remaining = s.remaining || 0;
   const overBudget = budget > 0 && spent >= budget;
 
-  const tripName = tripFromNav?.trip_name || 'Trip';
-  const tripDest = tripFromNav?.destination || '';
-  const tripStart = tripFromNav?.start_date || '';
-  const tripEnd = tripFromNav?.end_date || '';
+  const tripName = tripFromNavActive?.trip_name || '';
+  const tripDest = tripFromNavActive?.destination || '';
+  const tripStart = tripFromNavActive?.start_date || '';
+  const tripEnd = tripFromNavActive?.end_date || '';
 
   return (
     <div className="space-y-6">
@@ -108,7 +135,7 @@ export default function TripDetails() {
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-xl font-bold text-ink">{tripName}</h2>
-                <StatusPill status={tripFromNav?.status || 'Active'} />
+                <StatusPill status={tripFromNavActive?.status || 'Active'} />
               </div>
               <p className="text-sm text-ink-muted">{tripDest}{tripStart ? ` · ${tripStart} — ${tripEnd}` : ''}</p>
             </div>
@@ -131,7 +158,7 @@ export default function TripDetails() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="flex flex-col gap-2">
           <p className="text-xs text-ink-muted font-medium">Trip Status</p>
-          <StatusPill status={tripFromNav?.status || 'Active'} />
+          <StatusPill status={tripFromNavActive?.status || 'Active'} />
         </Card>
         <Card className="flex flex-col gap-2">
           <p className="text-xs text-ink-muted font-medium">Total Budget</p>
@@ -214,8 +241,8 @@ export default function TripDetails() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {(s.recent_expenses || []).map(exp => (
-                  <tr key={exp.expense_id} className="hover:bg-canvas-soft transition-colors">
+                {(s.recent_expenses || []).map((exp, idx) => (
+                  <tr key={exp.expense_id || `exp-${idx}-${exp.date || ''}-${exp.amount || 0}`} className="hover:bg-canvas-soft transition-colors">
                     <td className="px-4 py-3 text-ink">{exp.date}</td>
                     <td className="px-4 py-3 text-ink">{exp.category}</td>
                     <td className="px-4 py-3 text-ink">{exp.merchant}</td>
