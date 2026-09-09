@@ -1,0 +1,198 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF3 - Add Expense",
+  "description": "Validate expense data, generate expense ID, insert into Google Sheets Expenses sheet. Sync webhook with return_response Raw.",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-sheets"
+  ],
+  "template": {
+    "displayName": "WF3 - Add Expense",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When add expense request received",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": { "authType": "none", "authFields": {} },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": { "type": "MANUAL" },
+          "syncMarkdown": { "type": "MANUAL" },
+          "testMarkdown": { "type": "MANUAL" },
+          "authType": { "type": "MANUAL" },
+          "authFields": { "type": "MANUAL", "schema": {} }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "CODE",
+        "displayName": "Validate & Generate Expense ID",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "input": { "body": "{{trigger['body']}}" },
+          "sourceCode": {
+            "code": "export const code = async (inputs) => {\n  let b = inputs.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }\n  if (!b || typeof b !== 'object') b = {};\n  const errors = [];\n  if (!b.trip_id) errors.push('trip_id is required');\n  if (!b.user_id) errors.push('user_id is required');\n  if (!b.expense_date) errors.push('expense_date is required');\n  if (!b.category) errors.push('category is required');\n  if (!b.amount || parseFloat(b.amount) <= 0) errors.push('amount must be greater than zero');\n  if (errors.length > 0) {\n    return { success: false, message: 'Validation failed', errors: errors };\n  }\n  const ts = Date.now().toString(36).toUpperCase().slice(-4);\n  const expense_id = 'EXP-' + ts;\n  return {\n    success: true,\n    expense_id: expense_id,\n    trip_id: b.trip_id,\n    user_id: b.user_id,\n    expense_date: b.expense_date,\n    category: b.category,\n    subcategory: b.subcategory || '',\n    merchant: b.merchant || '',\n    amount: parseFloat(b.amount),\n    currency: b.currency || 'INR',\n    payment_method: b.payment_method || '',\n    description: b.description || '',\n    receipt_url: b.receipt_url || '',\n    source: b.source || 'manual',\n    status: 'Verified'\n  };\n};",
+            "packageJson": "{}"
+          },
+          "sampleData": {},
+          "propertySettings": { "body": { "type": "MANUAL" } },
+          "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+        },
+        "nextAction": {
+          "name": "step_router",
+          "type": "ROUTER",
+          "displayName": "Route by Validation",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "branches": [
+              { "branchName": "Validation Failed", "branchType": "CONDITION",
+                "conditions": [[{ "operator": "BOOLEAN_IS_FALSE", "firstValue": "{{step_1['success']}}", "secondValue": "true", "caseSensitive": false }]] },
+              { "branchName": "Valid", "branchType": "FALLBACK" }
+            ],
+            "executionType": "EXECUTE_FIRST_MATCH", "sampleData": {}
+          },
+          "children": [
+            {
+              "name": "step_err",
+              "type": "CODE",
+              "displayName": "Prepare Validation Error",
+              "valid": true, "skip": false,
+              "settings": {
+                "input": { "expenseData": "{{step_1}}" },
+                "sourceCode": {
+                  "code": "export const code = async (inputs) => {\n  const d = inputs.expenseData || {};\n  const errors = Array.isArray(d.errors) ? d.errors : [];\n  const response = { success: false, message: d.message || 'Validation failed', errors: errors };\n  return { response_body: JSON.stringify(response) };\n};",
+                  "packageJson": "{}"
+                },
+                "sampleData": {},
+                "propertySettings": { "expenseData": { "type": "MANUAL" } },
+                "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+              },
+              "nextAction": {
+                "name": "step_err_resp",
+                "type": "PIECE",
+                "displayName": "Return Validation Error Response",
+                "valid": true, "skip": false,
+                "settings": {
+                  "pieceName": "@puchoaistudio/tool-webhook", "pieceVersion": "^2.0.4", "actionName": "return_response",
+                  "input": { "responseType": "Raw", "respond": "stop", "fields": { "body": "{{step_err['response_body']}}" } },
+                  "sampleData": {},
+                  "propertySettings": {
+                    "responseType": { "type": "MANUAL" }, "respond": { "type": "MANUAL" },
+                    "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+                  },
+                  "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                },
+                "nextAction": null
+              }
+            },
+            {
+              "name": "step_3",
+              "type": "PIECE",
+              "displayName": "Insert Expense into Sheets",
+              "valid": true, "skip": false,
+              "settings": {
+                "pieceName": "@puchoaistudio/tool-google-sheets", "pieceVersion": "^2.0.9", "actionName": "insert_row",
+                "input": {
+                  "auth": "",
+                  "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+                  "sheetId": "899847528",
+                  "as_string": true,
+                  "first_row_headers": true,
+                  "includeTeamDrives": false,
+                  "values": {
+                    "Expense_ID": "{{step_1['expense_id']}}",
+                    "Trip_ID": "{{step_1['trip_id']}}",
+                    "User_ID": "{{step_1['user_id']}}",
+                    "Date": "{{step_1['expense_date']}}",
+                    "Category": "{{step_1['category']}}",
+                    "Subcategory": "{{step_1['subcategory']}}",
+                    "Merchant": "{{step_1['merchant']}}",
+                    "Amount": "{{step_1['amount']}}",
+                    "Currency": "{{step_1['currency']}}",
+                    "Payment_Method": "{{step_1['payment_method']}}",
+                    "Description": "{{step_1['description']}}",
+                    "Receipt_URL": "{{step_1['receipt_url']}}",
+                    "Source": "{{step_1['source']}}",
+                    "Status": "{{step_1['status']}}"
+                  }
+                },
+                "sampleData": {},
+                "propertySettings": {
+                  "auth": { "type": "MANUAL" }, "spreadsheetId": { "type": "MANUAL" }, "sheetId": { "type": "MANUAL" },
+                  "as_string": { "type": "MANUAL" }, "first_row_headers": { "type": "MANUAL" }, "includeTeamDrives": { "type": "MANUAL" },
+                  "values": {
+                    "type": "MANUAL",
+                    "schema": {
+                      "Expense_ID": { "type": "SHORT_TEXT","required": true,"displayName": "Expense ID","defaultValue": "" },
+                      "Trip_ID": { "type": "SHORT_TEXT","required": true,"displayName": "Trip ID","defaultValue": "" },
+                      "User_ID": { "type": "SHORT_TEXT","required": true,"displayName": "User ID","defaultValue": "" },
+                      "Date": { "type": "SHORT_TEXT","required": true,"displayName": "Date","defaultValue": "" },
+                      "Category": { "type": "SHORT_TEXT","required": true,"displayName": "Category","defaultValue": "" },
+                      "Subcategory": { "type": "SHORT_TEXT","required": false,"displayName": "Subcategory","defaultValue": "" },
+                      "Merchant": { "type": "SHORT_TEXT","required": false,"displayName": "Merchant","defaultValue": "" },
+                      "Amount": { "type": "SHORT_TEXT","required": true,"displayName": "Amount","defaultValue": "" },
+                      "Currency": { "type": "SHORT_TEXT","required": false,"displayName": "Currency","defaultValue": "INR" },
+                      "Payment_Method": { "type": "SHORT_TEXT","required": false,"displayName": "Payment Method","defaultValue": "" },
+                      "Description": { "type": "SHORT_TEXT","required": false,"displayName": "Description","defaultValue": "" },
+                      "Receipt_URL": { "type": "SHORT_TEXT","required": false,"displayName": "Receipt URL","defaultValue": "" },
+                      "Source": { "type": "SHORT_TEXT","required": false,"displayName": "Source","defaultValue": "manual" },
+                      "Status": { "type": "SHORT_TEXT","required": true,"displayName": "Status","defaultValue": "Verified" }
+                    }
+                  }
+                },
+                "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+              },
+              "nextAction": {
+                "name": "step_4",
+                "type": "CODE",
+                "displayName": "Prepare Success Response",
+                "valid": true, "skip": false,
+                "settings": {
+                  "input": { "expenseData": "{{step_1}}" },
+                  "sourceCode": {
+                    "code": "export const code = async (inputs) => {\n  const d = inputs.expenseData || {};\n  const response = { success: true, expense_id: d.expense_id || '', message: 'Expense added successfully' };\n  return { response_body: JSON.stringify(response) };\n};",
+                    "packageJson": "{}"
+                  },
+                  "sampleData": {},
+                  "propertySettings": { "expenseData": { "type": "MANUAL" } },
+                  "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                },
+                "nextAction": {
+                  "name": "step_5",
+                  "type": "PIECE",
+                  "displayName": "Return Success Response",
+                  "valid": true, "skip": false,
+                  "settings": {
+                    "pieceName": "@puchoaistudio/tool-webhook", "pieceVersion": "^2.0.4", "actionName": "return_response",
+                    "input": { "responseType": "Raw", "respond": "stop", "fields": { "body": "{{step_4['response_body']}}" } },
+                    "sampleData": {},
+                    "propertySettings": {
+                      "responseType": { "type": "MANUAL" }, "respond": { "type": "MANUAL" },
+                      "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+                    },
+                    "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                  },
+                  "nextAction": null
+                }
+              }
+            }
+          ],
+          "nextAction": null
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}

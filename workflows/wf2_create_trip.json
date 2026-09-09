@@ -1,0 +1,433 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF2 - Create Trip",
+  "description": "Validate trip data, check for duplicates, generate trip ID, insert into Google Sheets Trips sheet. Sync webhook with return_response Raw.",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-sheets"
+  ],
+  "template": {
+    "displayName": "WF2 - Create Trip",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When create trip request received",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": {
+          "authType": "none",
+          "authFields": {}
+        },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": { "type": "MANUAL" },
+          "syncMarkdown": { "type": "MANUAL" },
+          "testMarkdown": { "type": "MANUAL" },
+          "authType": { "type": "MANUAL" },
+          "authFields": { "type": "MANUAL", "schema": {} }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "CODE",
+        "displayName": "Validate & Generate Trip ID",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "input": {
+            "body": "{{trigger['body']}}"
+          },
+          "sourceCode": {
+            "code": "export const code = async (inputs) => {\n  let b = inputs.body;\n  if (typeof b === 'string') {\n    try { b = JSON.parse(b); } catch { b = {}; }\n  }\n  if (!b || typeof b !== 'object') b = {};\n  const errors = [];\n  if (!b.user_id) errors.push('user_id is required');\n  if (!b.trip_name) errors.push('trip_name is required');\n  if (!b.source) errors.push('source is required');\n  if (!b.destination) errors.push('destination is required');\n  if (!b.start_date) errors.push('start_date is required');\n  if (!b.end_date) errors.push('end_date is required');\n  if (errors.length > 0) {\n    return { success: false, message: 'Validation failed', errors: errors };\n  }\n  const ts = Date.now().toString(36).toUpperCase().slice(-4);\n  const trip_id = 'TRIP-' + ts;\n  return {\n    success: true,\n    trip_id: trip_id,\n    user_id: b.user_id,\n    trip_name: b.trip_name,\n    source: b.source,\n    destination: b.destination,\n    start_date: b.start_date,\n    end_date: b.end_date,\n    purpose: b.purpose || '',\n    budget: b.budget || 0\n  };\n};",
+            "packageJson": "{}"
+          },
+          "sampleData": {},
+          "propertySettings": {
+            "body": { "type": "MANUAL" }
+          },
+          "errorHandlingOptions": {
+            "retryOnFailure": { "value": false },
+            "continueOnFailure": { "value": false }
+          }
+        },
+        "nextAction": {
+          "name": "step_router",
+          "type": "ROUTER",
+          "displayName": "Route by Validation",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "branches": [
+              {
+                "branchName": "Validation Failed",
+                "branchType": "CONDITION",
+                "conditions": [
+                  [
+                    {
+                      "operator": "BOOLEAN_IS_FALSE",
+                      "firstValue": "{{step_1['success']}}",
+                      "secondValue": "true",
+                      "caseSensitive": false
+                    }
+                  ]
+                ]
+              },
+              {
+                "branchName": "Valid",
+                "branchType": "FALLBACK"
+              }
+            ],
+            "executionType": "EXECUTE_FIRST_MATCH",
+            "sampleData": {}
+          },
+          "children": [
+            {
+              "name": "step_err",
+              "type": "CODE",
+              "displayName": "Prepare Validation Error",
+              "valid": true,
+              "skip": false,
+              "settings": {
+                "input": {
+                  "tripData": "{{step_1}}"
+                },
+                "sourceCode": {
+                  "code": "export const code = async (inputs) => {\n  const d = inputs.tripData || {};\n  const errors = Array.isArray(d.errors) ? d.errors : [];\n  const response = {\n    success: false,\n    message: d.message || 'Validation failed',\n    errors: errors\n  };\n  return { response_body: JSON.stringify(response) };\n};",
+                  "packageJson": "{}"
+                },
+                "sampleData": {},
+                "propertySettings": {
+                  "tripData": { "type": "MANUAL" }
+                },
+                "errorHandlingOptions": {
+                  "retryOnFailure": { "value": false },
+                  "continueOnFailure": { "value": false }
+                }
+              },
+              "nextAction": {
+                "name": "step_err_resp",
+                "type": "PIECE",
+                "displayName": "Return Validation Error Response",
+                "valid": true,
+                "skip": false,
+                "settings": {
+                  "pieceName": "@puchoaistudio/tool-webhook",
+                  "pieceVersion": "^2.0.4",
+                  "actionName": "return_response",
+                  "input": {
+                    "responseType": "Raw",
+                    "respond": "stop",
+                    "fields": {
+                      "body": "{{step_err['response_body']}}"
+                    }
+                  },
+                  "sampleData": {},
+                  "propertySettings": {
+                    "responseType": { "type": "MANUAL" },
+                    "respond": { "type": "MANUAL" },
+                    "fields": {
+                      "type": "MANUAL",
+                      "schema": {
+                        "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" }
+                      }
+                    }
+                  },
+                  "errorHandlingOptions": {
+                    "retryOnFailure": { "value": false },
+                    "continueOnFailure": { "value": false }
+                  }
+                },
+                "nextAction": null
+              }
+            },
+            {
+              "name": "step_search",
+              "type": "PIECE",
+              "displayName": "Search Existing Trips",
+              "valid": true,
+              "skip": false,
+              "settings": {
+                "pieceName": "@puchoaistudio/tool-google-sheets",
+                "pieceVersion": "^2.0.9",
+                "actionName": "find_rows",
+                "input": {
+                  "auth": "",
+                  "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+                  "sheetId": "1778620388",
+                  "columnName": "User_ID",
+                  "searchValue": "{{step_1['user_id']}}",
+                  "matchCase": false,
+                  "numberOfRows": 500,
+                  "includeTeamDrives": false
+                },
+                "sampleData": {},
+                "propertySettings": {
+                  "auth": { "type": "MANUAL" },
+                  "spreadsheetId": { "type": "MANUAL" },
+                  "sheetId": { "type": "MANUAL" },
+                  "columnName": { "type": "MANUAL" },
+                  "searchValue": { "type": "MANUAL" },
+                  "matchCase": { "type": "MANUAL" },
+                  "numberOfRows": { "type": "MANUAL" },
+                  "includeTeamDrives": { "type": "MANUAL" },
+                  "startingRow": { "type": "MANUAL" }
+                },
+                "errorHandlingOptions": {
+                  "retryOnFailure": { "value": true },
+                  "continueOnFailure": { "value": false }
+                }
+              },
+              "nextAction": {
+                "name": "step_dupcheck",
+                "type": "CODE",
+                "displayName": "Duplicate Check",
+                "valid": true,
+                "skip": false,
+                "settings": {
+                  "input": {
+                    "tripData": "{{step_1}}",
+                    "searchResults": "{{step_search}}"
+                  },
+                  "sourceCode": {
+                    "code": "export const code = async (inputs) => {\n  const d = inputs.tripData || {};\n  const newVals = {\n    user_id: String(d.user_id || '').trim().toLowerCase(),\n    trip_name: String(d.trip_name || '').trim().toLowerCase(),\n    source: String(d.source || '').trim().toLowerCase(),\n    destination: String(d.destination || '').trim().toLowerCase(),\n    start_date: String(d.start_date || '').trim(),\n    end_date: String(d.end_date || '').trim(),\n    purpose: String(d.purpose || '').trim().toLowerCase(),\n    budget: parseFloat(d.budget) || 0\n  };\n\n  let rows = [];\n  if (Array.isArray(inputs.searchResults)) {\n    rows = inputs.searchResults;\n  } else if (inputs.searchResults && typeof inputs.searchResults === 'object') {\n    const vals = inputs.searchResults.data || inputs.searchResults.rows || [];\n    rows = Array.isArray(vals) ? vals : [vals];\n  }\n\n  let duplicate = false;\n  for (const row of rows) {\n    const v = row.values || row;\n    const match =\n      String(v.B || row.User_ID || '').trim().toLowerCase() === newVals.user_id &&\n      String(v.C || row.Trip_Name || '').trim().toLowerCase() === newVals.trip_name &&\n      String(v.D || row.Source || '').trim().toLowerCase() === newVals.source &&\n      String(v.E || row.Destination || '').trim().toLowerCase() === newVals.destination &&\n      String(v.F || row.Start_Date || '').trim() === newVals.start_date &&\n      String(v.G || row.End_Date || '').trim() === newVals.end_date &&\n      String(v.H || row.Purpose || '').trim().toLowerCase() === newVals.purpose &&\n      (parseFloat(v.I || row.Budget || 0)) === newVals.budget;\n    if (match) { duplicate = true; break; }\n  }\n\n  return { duplicate: duplicate };\n};",
+                    "packageJson": "{}"
+                  },
+                  "sampleData": {},
+                  "propertySettings": {
+                    "tripData": { "type": "MANUAL" },
+                    "searchResults": { "type": "MANUAL" }
+                  },
+                  "errorHandlingOptions": {
+                    "retryOnFailure": { "value": false },
+                    "continueOnFailure": { "value": false }
+                  }
+                },
+                "nextAction": {
+                  "name": "step_dup_router",
+                  "type": "ROUTER",
+                  "displayName": "Route by Duplicate Check",
+                  "valid": true,
+                  "skip": false,
+                  "settings": {
+                    "branches": [
+                      {
+                        "branchName": "Duplicate Found",
+                        "branchType": "CONDITION",
+                        "conditions": [
+                          [
+                            {
+                              "operator": "BOOLEAN_IS_TRUE",
+                              "firstValue": "{{step_dupcheck['duplicate']}}",
+                              "secondValue": "true",
+                              "caseSensitive": false
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "branchName": "No Duplicate",
+                        "branchType": "FALLBACK"
+                      }
+                    ],
+                    "executionType": "EXECUTE_FIRST_MATCH",
+                    "sampleData": {}
+                  },
+                  "children": [
+                    {
+                      "name": "step_dup_err",
+                      "type": "CODE",
+                      "displayName": "Prepare Duplicate Error",
+                      "valid": true,
+                      "skip": false,
+                      "settings": {
+                        "input": {},
+                        "sourceCode": {
+                          "code": "export const code = async () => {\n  const response = {\n    success: false,\n    message: 'A trip with these exact details already exists.',\n    duplicate: true\n  };\n  return { response_body: JSON.stringify(response) };\n};",
+                          "packageJson": "{}"
+                        },
+                        "sampleData": {},
+                        "propertySettings": {},
+                        "errorHandlingOptions": {
+                          "retryOnFailure": { "value": false },
+                          "continueOnFailure": { "value": false }
+                        }
+                      },
+                      "nextAction": {
+                        "name": "step_dup_err_resp",
+                        "type": "PIECE",
+                        "displayName": "Return Duplicate Error Response",
+                        "valid": true,
+                        "skip": false,
+                        "settings": {
+                          "pieceName": "@puchoaistudio/tool-webhook",
+                          "pieceVersion": "^2.0.4",
+                          "actionName": "return_response",
+                          "input": {
+                            "responseType": "Raw",
+                            "respond": "stop",
+                            "fields": {
+                              "body": "{{step_dup_err['response_body']}}"
+                            }
+                          },
+                          "sampleData": {},
+                          "propertySettings": {
+                            "responseType": { "type": "MANUAL" },
+                            "respond": { "type": "MANUAL" },
+                            "fields": {
+                              "type": "MANUAL",
+                              "schema": {
+                                "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" }
+                              }
+                            }
+                          },
+                          "errorHandlingOptions": {
+                            "retryOnFailure": { "value": false },
+                            "continueOnFailure": { "value": false }
+                          }
+                        },
+                        "nextAction": null
+                      }
+                    },
+                    {
+                      "name": "step_3",
+                      "type": "PIECE",
+                      "displayName": "Insert Trip into Sheets",
+                      "valid": true,
+                      "skip": false,
+                      "settings": {
+                        "pieceName": "@puchoaistudio/tool-google-sheets",
+                        "pieceVersion": "^2.0.9",
+                        "actionName": "insert_row",
+                        "input": {
+                          "auth": "",
+                          "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+                          "sheetId": "1778620388",
+                          "as_string": true,
+                          "first_row_headers": true,
+                          "includeTeamDrives": false,
+                          "values": {
+                            "Trip_ID": "{{step_1['trip_id']}}",
+                            "User_ID": "{{step_1['user_id']}}",
+                            "Trip_Name": "{{step_1['trip_name']}}",
+                            "Source": "{{step_1['source']}}",
+                            "Destination": "{{step_1['destination']}}",
+                            "Start_Date": "{{step_1['start_date']}}",
+                            "End_Date": "{{step_1['end_date']}}",
+                            "Purpose": "{{step_1['purpose']}}",
+                            "Budget": "{{step_1['budget']}}",
+                            "Status": "Active",
+                            "Report_URL": ""
+                          }
+                        },
+                        "sampleData": {},
+                        "propertySettings": {
+                          "auth": { "type": "MANUAL" },
+                          "spreadsheetId": { "type": "MANUAL" },
+                          "sheetId": { "type": "MANUAL" },
+                          "as_string": { "type": "MANUAL" },
+                          "first_row_headers": { "type": "MANUAL" },
+                          "includeTeamDrives": { "type": "MANUAL" },
+                          "values": {
+                            "type": "MANUAL",
+                            "schema": {
+                              "Trip_ID": { "type": "SHORT_TEXT","required": true,"displayName": "Trip ID","defaultValue": "" },
+                              "User_ID": { "type": "SHORT_TEXT","required": true,"displayName": "User ID","defaultValue": "" },
+                              "Trip_Name": { "type": "SHORT_TEXT","required": true,"displayName": "Trip Name","defaultValue": "" },
+                              "Source": { "type": "SHORT_TEXT","required": true,"displayName": "Source","defaultValue": "" },
+                              "Destination": { "type": "SHORT_TEXT","required": true,"displayName": "Destination","defaultValue": "" },
+                              "Start_Date": { "type": "SHORT_TEXT","required": true,"displayName": "Start Date","defaultValue": "" },
+                              "End_Date": { "type": "SHORT_TEXT","required": true,"displayName": "End Date","defaultValue": "" },
+                              "Purpose": { "type": "SHORT_TEXT","required": false,"displayName": "Purpose","defaultValue": "" },
+                              "Budget": { "type": "SHORT_TEXT","required": true,"displayName": "Budget","defaultValue": "" },
+                              "Status": { "type": "SHORT_TEXT","required": true,"displayName": "Status","defaultValue": "Active" },
+                              "Report_URL": { "type": "SHORT_TEXT","required": false,"displayName": "Report URL","defaultValue": "" }
+                            }
+                          }
+                        },
+                        "errorHandlingOptions": {
+                          "retryOnFailure": { "value": false },
+                          "continueOnFailure": { "value": false }
+                        }
+                      },
+                      "nextAction": {
+                        "name": "step_4",
+                        "type": "CODE",
+                        "displayName": "Prepare Success Response",
+                        "valid": true,
+                        "skip": false,
+                        "settings": {
+                          "input": {
+                            "tripData": "{{step_1}}"
+                          },
+                          "sourceCode": {
+                            "code": "export const code = async (inputs) => {\n  const d = inputs.tripData || {};\n  const response = {\n    success: true,\n    message: 'Trip created successfully',\n    trip: {\n      trip_id: d.trip_id || '',\n      user_id: d.user_id || '',\n      trip_name: d.trip_name || '',\n      source: d.source || '',\n      destination: d.destination || '',\n      start_date: d.start_date || '',\n      end_date: d.end_date || '',\n      purpose: d.purpose || '',\n      budget: parseFloat(d.budget) || 0,\n      status: 'Active'\n    }\n  };\n  return { response_body: JSON.stringify(response) };\n};",
+                            "packageJson": "{}"
+                          },
+                          "sampleData": {},
+                          "propertySettings": {
+                            "tripData": { "type": "MANUAL" }
+                          },
+                          "errorHandlingOptions": {
+                            "retryOnFailure": { "value": false },
+                            "continueOnFailure": { "value": false }
+                          }
+                        },
+                        "nextAction": {
+                          "name": "step_5",
+                          "type": "PIECE",
+                          "displayName": "Return Success Response",
+                          "valid": true,
+                          "skip": false,
+                          "settings": {
+                            "pieceName": "@puchoaistudio/tool-webhook",
+                            "pieceVersion": "^2.0.4",
+                            "actionName": "return_response",
+                            "input": {
+                              "responseType": "Raw",
+                              "respond": "stop",
+                              "fields": {
+                                "body": "{{step_4['response_body']}}"
+                              }
+                            },
+                            "sampleData": {},
+                            "propertySettings": {
+                              "responseType": { "type": "MANUAL" },
+                              "respond": { "type": "MANUAL" },
+                              "fields": {
+                                "type": "MANUAL",
+                                "schema": {
+                                  "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" }
+                                }
+                              }
+                            },
+                            "errorHandlingOptions": {
+                              "retryOnFailure": { "value": false },
+                              "continueOnFailure": { "value": false }
+                            }
+                          },
+                          "nextAction": null
+                        }
+                      }
+                    }
+                  ],
+                  "nextAction": null
+                }
+              }
+            }
+          ],
+          "nextAction": null
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}

@@ -1,0 +1,255 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF5 - Trip Summary",
+  "description": "Fetch trip budget from Trips sheet, fetch expenses from Expenses sheet, calculate category totals and budget status, return structured summary via sync webhook.",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-sheets"
+  ],
+  "template": {
+    "displayName": "WF5 - Trip Summary",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When trip summary requested",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": { "authType": "none", "authFields": {} },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": { "type": "MANUAL" },
+          "syncMarkdown": { "type": "MANUAL" },
+          "testMarkdown": { "type": "MANUAL" },
+          "authType": { "type": "MANUAL" },
+          "authFields": { "type": "MANUAL", "schema": {} }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "CODE",
+        "displayName": "Validate Input & Extract Trip ID",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "input": { "body": "{{trigger['body']}}" },
+          "sourceCode": {
+            "code": "export const code = async (inputs) => {\n  let b = inputs.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }\n  if (!b || typeof b !== 'object') b = {};\n  if (!b.trip_id) {\n    return { success: false, message: 'trip_id is required', errors: ['trip_id is required'] };\n  }\n  return { success: true, trip_id: b.trip_id };\n};",
+            "packageJson": "{}"
+          },
+          "sampleData": {},
+          "propertySettings": { "body": { "type": "MANUAL" } },
+          "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+        },
+        "nextAction": {
+          "name": "step_1b",
+          "type": "PIECE",
+          "displayName": "Find Trip in Trips Sheet",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "pieceName": "@puchoaistudio/tool-google-sheets",
+            "pieceVersion": "^2.0.9",
+            "actionName": "find_rows",
+            "input": {
+              "auth": "",
+              "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+              "sheetId": "1778620388",
+              "columnName": "Trip_ID",
+              "searchValue": "{{step_1['trip_id']}}",
+              "matchCase": false,
+              "numberOfRows": 1,
+              "includeTeamDrives": false
+            },
+            "sampleData": {},
+            "propertySettings": {
+              "auth": { "type": "MANUAL" },
+              "spreadsheetId": { "type": "MANUAL" },
+              "sheetId": { "type": "MANUAL" },
+              "columnName": { "type": "MANUAL" },
+              "searchValue": { "type": "MANUAL" },
+              "matchCase": { "type": "MANUAL" },
+              "numberOfRows": { "type": "MANUAL" },
+              "includeTeamDrives": { "type": "MANUAL" },
+              "startingRow": { "type": "MANUAL" }
+            },
+            "errorHandlingOptions": { "retryOnFailure": { "value": true }, "continueOnFailure": { "value": false } }
+          },
+          "nextAction": {
+            "name": "step_1c",
+            "type": "CODE",
+            "displayName": "Extract Budget from Trip Row",
+            "valid": true,
+            "skip": false,
+            "settings": {
+              "input": {
+                "tripRows": "{{step_1b}}",
+                "tripId": "{{step_1['trip_id']}}"
+              },
+              "sourceCode": {
+                "code": "export const code = async (inputs) => {\n  let rows = [];\n  const raw = inputs.tripRows;\n  if (Array.isArray(raw)) {\n    rows = raw;\n  } else if (raw && typeof raw === 'object') {\n    const objVals = Object.values(raw);\n    if (objVals.length > 0 && objVals[0] && typeof objVals[0] === 'object' && (objVals[0] as any).values) {\n      rows = objVals;\n    } else {\n      rows = raw.data || raw.rows || objVals;\n      if (!Array.isArray(rows)) rows = [rows];\n    }\n  }\n\n  if (rows.length === 0) {\n    return { success: false, message: 'Trip not found in Trips sheet', errors: ['Trip not found'] };\n  }\n\n  const row = rows[0] as any;\n  const v = (row && row.values) ? row.values : (row || {});\n  // Trips sheet: A=Trip_ID, B=User_ID, C=Trip_Name, D=Source, E=Destination, F=Start_Date, G=End_Date, H=Purpose, I=Budget, J=Status\n  const budget = parseFloat(v.I || row.Budget || row.budget || 0);\n  const tripName = String(v.C || row.Trip_Name || row.trip_name || '').trim();\n  const tripDest = String(v.E || row.Destination || row.destination || '').trim();\n  const tripSrc = String(v.D || row.Source || row.source || '').trim();\n  const startDate = String(v.F || row.Start_Date || row.start_date || '').trim();\n  const endDate = String(v.G || row.End_Date || row.end_date || '').trim();\n  const status = String(v.J || row.Status || row.status || 'Active').trim();\n  const userId = String(v.B || row.User_ID || row.user_id || '').trim();\n\n  return {\n    success: true,\n    trip_id: inputs.tripId,\n    trip_name: tripName,\n    source: tripSrc,\n    destination: tripDest,\n    start_date: startDate,\n    end_date: endDate,\n    user_id: userId,\n    status: status,\n    budget: budget\n  };\n};",
+                "packageJson": "{}"
+              },
+              "sampleData": {},
+              "propertySettings": {
+                "tripRows": { "type": "MANUAL" },
+                "tripId": { "type": "MANUAL" }
+              },
+              "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+            },
+            "nextAction": {
+              "name": "step_router",
+              "type": "ROUTER",
+              "displayName": "Route by Validation",
+              "valid": true,
+              "skip": false,
+              "settings": {
+                "branches": [
+                  {
+                    "branchName": "Invalid",
+                    "branchType": "CONDITION",
+                    "conditions": [[{ "operator": "BOOLEAN_IS_FALSE", "firstValue": "{{step_1c['success']}}", "secondValue": "true", "caseSensitive": false }]]
+                  },
+                  { "branchName": "Valid", "branchType": "FALLBACK" }
+                ],
+                "executionType": "EXECUTE_FIRST_MATCH",
+                "sampleData": {}
+              },
+              "children": [
+                {
+                  "name": "step_err",
+                  "type": "CODE",
+                  "displayName": "Return Validation Error",
+                  "valid": true,
+                  "skip": false,
+                  "settings": {
+                    "input": { "data": "{{step_1c}}" },
+                    "sourceCode": {
+                      "code": "export const code = async (inputs) => {\n  const d = inputs.data || {};\n  const response = { success: false, message: d.message || 'Invalid request', errors: d.errors || [] };\n  return { response_body: JSON.stringify(response) };\n};",
+                      "packageJson": "{}"
+                    },
+                    "sampleData": {},
+                    "propertySettings": { "data": { "type": "MANUAL" } },
+                    "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                  },
+                  "nextAction": {
+                    "name": "step_err_resp",
+                    "type": "PIECE",
+                    "displayName": "Return Error Response",
+                    "valid": true,
+                    "skip": false,
+                    "settings": {
+                      "pieceName": "@puchoaistudio/tool-webhook",
+                      "pieceVersion": "^2.0.4",
+                      "actionName": "return_response",
+                      "input": { "responseType": "Raw", "respond": "stop", "fields": { "body": "{{step_err['response_body']}}" } },
+                      "sampleData": {},
+                      "propertySettings": {
+                        "responseType": { "type": "MANUAL" },
+                        "respond": { "type": "MANUAL" },
+                        "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+                      },
+                      "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                    },
+                    "nextAction": null
+                  }
+                },
+                {
+                  "name": "step_2",
+                  "type": "PIECE",
+                  "displayName": "Find Expenses for Trip",
+                  "valid": true,
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@puchoaistudio/tool-google-sheets",
+                    "pieceVersion": "^2.0.9",
+                    "actionName": "find_rows",
+                    "input": {
+                      "auth": "",
+                      "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+                      "sheetId": "899847528",
+                      "columnName": "Trip_ID",
+                      "searchValue": "{{step_1c['trip_id']}}",
+                      "matchCase": false,
+                      "numberOfRows": 500,
+                      "includeTeamDrives": false
+                    },
+                    "sampleData": {},
+                    "propertySettings": {
+                      "auth": { "type": "MANUAL" },
+                      "spreadsheetId": { "type": "MANUAL" },
+                      "sheetId": { "type": "MANUAL" },
+                      "columnName": { "type": "MANUAL" },
+                      "searchValue": { "type": "MANUAL" },
+                      "matchCase": { "type": "MANUAL" },
+                      "numberOfRows": { "type": "MANUAL" },
+                      "includeTeamDrives": { "type": "MANUAL" },
+                      "startingRow": { "type": "MANUAL" }
+                    },
+                    "errorHandlingOptions": { "retryOnFailure": { "value": true }, "continueOnFailure": { "value": false } }
+                  },
+                  "nextAction": {
+                    "name": "step_3",
+                    "type": "CODE",
+                    "displayName": "Calculate Totals & Build Summary",
+                    "valid": true,
+                    "skip": false,
+                    "settings": {
+                      "input": {
+                        "expenses": "{{step_2}}",
+                        "budget": "{{step_1c['budget']}}",
+                        "tripId": "{{step_1c['trip_id']}}"
+                      },
+                      "sourceCode": {
+                        "code": "export const code = async (inputs) => {\n  const budget = parseFloat(inputs.budget) || 0;\n  const tripId = inputs.tripId || '';\n\n  let rows = [];\n  const raw = inputs.expenses;\n  if (Array.isArray(raw)) {\n    rows = raw;\n  } else if (raw && typeof raw === 'object') {\n    const objVals = Object.values(raw);\n    if (objVals.length > 0 && objVals[0] !== null && typeof objVals[0] === 'object' && (objVals[0] as any).values) {\n      rows = objVals;\n    } else {\n      rows = raw.data || raw.rows || objVals;\n      if (!Array.isArray(rows)) rows = [rows];\n    }\n  }\n\n  const categories = { Transportation: 0, Hotel: 0, Food: 0, Cab: 0, Other: 0 };\n  let total = 0;\n  let highestAmt = 0;\n  let highestDetail = null;\n  const recent = [];\n\n  rows.forEach((row) => {\n    if (!row || typeof row !== 'object') return;\n    const r = row as any;\n    const v = r.values || r;\n    const cat = String(v.E || r.Category || r.category || 'Other').trim();\n    const amt = parseFloat(v.H || r.Amount || r.amount || 0);\n    const date = String(v.D || r.Date || r.date || '').trim();\n    const merchant = String(v.G || r.Merchant || r.merchant || '').trim();\n    const expId = String(v.A || r.Expense_ID || r.expense_id || '').trim();\n    const status = String(v.N || r.Status || r.status || 'Verified').trim();\n\n    if (amt === 0 && !cat) return;\n\n    if (categories.hasOwnProperty(cat)) { categories[cat] += amt; }\n    else { categories.Other += amt; }\n    total += amt;\n\n    if (amt > highestAmt) {\n      highestAmt = amt;\n      highestDetail = { merchant: merchant, amount: amt, category: cat, date: date };\n    }\n\n    recent.push({ expense_id: expId, date: date, category: cat, merchant: merchant, amount: amt, status: status });\n  });\n\n  recent.sort((a, b) => b.date.localeCompare(a.date));\n  const remaining = budget - total;\n  const budgetStatus = total < budget ? 'Within Budget' : 'Budget Exceeded';\n\n  const response = {\n    success: true,\n    trip_id: tripId,\n    budget: budget,\n    total_spent: total,\n    remaining: remaining,\n    budget_status: budgetStatus,\n    expense_count: rows.length,\n    highest_expense: highestDetail,\n    categories: categories,\n    recent_expenses: recent.slice(0, 20)\n  };\n  return { response_body: JSON.stringify(response) };\n};",
+                        "packageJson": "{}"
+                      },
+                      "sampleData": {},
+                      "propertySettings": {
+                        "expenses": { "type": "MANUAL" },
+                        "budget": { "type": "MANUAL" },
+                        "tripId": { "type": "MANUAL" }
+                      },
+                      "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                    },
+                    "nextAction": {
+                      "name": "step_4",
+                      "type": "PIECE",
+                      "displayName": "Return Summary Response",
+                      "valid": true,
+                      "skip": false,
+                      "settings": {
+                        "pieceName": "@puchoaistudio/tool-webhook",
+                        "pieceVersion": "^2.0.4",
+                        "actionName": "return_response",
+                        "input": { "responseType": "Raw", "respond": "stop", "fields": { "body": "{{step_3['response_body']}}" } },
+                        "sampleData": {},
+                        "propertySettings": {
+                          "responseType": { "type": "MANUAL" },
+                          "respond": { "type": "MANUAL" },
+                          "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+                        },
+                        "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                      },
+                      "nextAction": null
+                    }
+                  }
+                }
+              ],
+              "nextAction": null
+            }
+          }
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}

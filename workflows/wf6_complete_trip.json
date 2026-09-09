@@ -1,0 +1,557 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF6 - Complete Trip",
+  "description": "Fetch trip and expenses, calculate totals, generate PDF report, upload to Google Drive, update trip status",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-sheets",
+    "@puchoaistudio/tool-pdf",
+    "@puchoaistudio/tool-google-drive"
+  ],
+  "template": {
+    "displayName": "WF6 - Complete Trip",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When complete trip request received",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": {
+          "authType": "none",
+          "authFields": {}
+        },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": {
+            "type": "MANUAL"
+          },
+          "syncMarkdown": {
+            "type": "MANUAL"
+          },
+          "testMarkdown": {
+            "type": "MANUAL"
+          },
+          "authType": {
+            "type": "MANUAL"
+          },
+          "authFields": {
+            "type": "MANUAL",
+            "schema": {}
+          }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "PIECE",
+        "displayName": "Find Trip",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "pieceName": "@puchoaistudio/tool-google-sheets",
+          "pieceVersion": "^2.0.9",
+          "actionName": "find_rows",
+          "input": {
+            "auth": "",
+            "spreadsheetId": "",
+            "sheetId": 0,
+            "columnName": "Trip_ID",
+            "searchValue": "{{trigger['body']['trip_id']}}",
+            "matchCase": true,
+            "numberOfRows": 1,
+            "includeTeamDrives": false
+          },
+          "sampleData": {},
+          "propertySettings": {
+            "auth": {
+              "type": "MANUAL"
+            },
+            "spreadsheetId": {
+              "type": "MANUAL"
+            },
+            "sheetId": {
+              "type": "MANUAL"
+            },
+            "columnName": {
+              "type": "MANUAL"
+            },
+            "searchValue": {
+              "type": "MANUAL"
+            },
+            "matchCase": {
+              "type": "MANUAL"
+            },
+            "numberOfRows": {
+              "type": "MANUAL"
+            },
+            "includeTeamDrives": {
+              "type": "MANUAL"
+            },
+            "startingRow": {
+              "type": "MANUAL"
+            }
+          },
+          "errorHandlingOptions": {
+            "retryOnFailure": {
+              "value": true
+            },
+            "continueOnFailure": {
+              "value": false
+            }
+          }
+        },
+        "nextAction": {
+          "name": "step_2",
+          "type": "PIECE",
+          "displayName": "Find All Expenses",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "pieceName": "@puchoaistudio/tool-google-sheets",
+            "pieceVersion": "^2.0.9",
+            "actionName": "find_rows",
+            "input": {
+              "auth": "",
+              "spreadsheetId": "",
+              "sheetId": 0,
+              "columnName": "Trip_ID",
+              "searchValue": "{{trigger['body']['trip_id']}}",
+              "matchCase": true,
+              "numberOfRows": 500,
+              "includeTeamDrives": false
+            },
+            "sampleData": {},
+            "propertySettings": {
+              "auth": {
+                "type": "MANUAL"
+              },
+              "spreadsheetId": {
+                "type": "MANUAL"
+              },
+              "sheetId": {
+                "type": "MANUAL"
+              },
+              "columnName": {
+                "type": "MANUAL"
+              },
+              "searchValue": {
+                "type": "MANUAL"
+              },
+              "matchCase": {
+                "type": "MANUAL"
+              },
+              "numberOfRows": {
+                "type": "MANUAL"
+              },
+              "includeTeamDrives": {
+                "type": "MANUAL"
+              },
+              "startingRow": {
+                "type": "MANUAL"
+              }
+            },
+            "errorHandlingOptions": {
+              "retryOnFailure": {
+                "value": true
+              },
+              "continueOnFailure": {
+                "value": false
+              }
+            }
+          },
+          "nextAction": {
+            "name": "step_3",
+            "type": "CODE",
+            "displayName": "Calculate Totals & Generate Report",
+            "valid": true,
+            "skip": false,
+            "settings": {
+              "input": {
+                "tripData": "{{step_1}}",
+                "expenses": "{{step_2}}",
+                "tripId": "{{trigger['body']['trip_id']}}"
+              },
+              "sourceCode": {
+                "code": "export const code = async (inputs) => {\n  const tripRows = Array.isArray(inputs.tripData) ? inputs.tripData : [];\n  if (tripRows.length === 0) {\n    return { success: false, error: \"Trip not found\" };\n  }\n  const trip = tripRows[0];\n  const expenses = Array.isArray(inputs.expenses) ? inputs.expenses : [];\n  const cats = { Transportation: 0, Hotel: 0, Food: 0, Cab: 0, Other: 0 };\n  let total = 0;\n  const details = [];\n  expenses.forEach((exp) => {\n    const cat = String(exp.Category || exp.category || \"Other\");\n    const amt = parseFloat(exp.Amount || exp.amount || 0);\n    if (cats.hasOwnProperty(cat)) { cats[cat] += amt; } else { cats.Other += amt; }\n    total += amt;\n    details.push({\n      date: String(exp.Date || exp.date || \"\"),\n      category: cat,\n      merchant: String(exp.Merchant || exp.merchant || \"\"),\n      amount: amt,\n      description: String(exp.Description || exp.description || \"\")\n    });\n  });\n  const budget = parseFloat(trip.Budget || trip.budget || 0);\n  const remaining = budget - total;\n  const empName = String(trip.User_ID || trip.user_id || \"Employee\");\n  const tripName = String(trip.Trip_Name || trip.trip_name || \"Trip\");\n  const dest = String(trip.Destination || trip.destination || \"\");\n  const startDate = String(trip.Start_Date || trip.start_date || \"\");\n  const endDate = String(trip.End_Date || trip.end_date || \"\");\n  const generatedDate = new Date().toISOString().split(\"T\")[0];\n  let reportText = \"=================================\\n\";\n  reportText += \"       TRAVEL EXPENSE REPORT\\n\";\n  reportText += \"=================================\\n\\n\";\n  reportText += \"Employee: \" + empName + \"\\n\";\n  reportText += \"Trip: \" + tripName + \"\\n\";\n  reportText += \"Destination: \" + dest + \"\\n\";\n  reportText += \"Start Date: \" + startDate + \"\\n\";\n  reportText += \"End Date: \" + endDate + \"\\n\\n\";\n  reportText += \"---------------------------------\\n\";\n  reportText += \"EXPENSE SUMMARY\\n\";\n  reportText += \"---------------------------------\\n\\n\";\n  Object.keys(cats).forEach((cat) => {\n    reportText += cat + \": INR \" + cats[cat].toLocaleString(\"en-IN\") + \"\\n\";\n  });\n  reportText += \"\\n---------------------------------\\n\";\n  reportText += \"Total Budget:    INR \" + budget.toLocaleString(\"en-IN\") + \"\\n\";\n  reportText += \"Total Expense:   INR \" + total.toLocaleString(\"en-IN\") + \"\\n\";\n  reportText += \"Remaining:       INR \" + remaining.toLocaleString(\"en-IN\") + \"\\n\";\n  reportText += \"---------------------------------\\n\\n\";\n  reportText += \"EXPENSE DETAILS\\n\";\n  reportText += \"---------------------------------\\n\";\n  reportText += \"Date       | Category       | Merchant         | Amount\\n\";\n  reportText += \"-----------+----------------+------------------+--------\\n\";\n  details.forEach((d) => {\n    reportText += d.date + \" | \" + d.category.padEnd(14) + \" | \" + d.merchant.padEnd(16) + \" | INR \" + d.amount.toLocaleString(\"en-IN\") + \"\\n\";\n  });\n  reportText += \"\\n=================================\\n\";\n  reportText += \"Report Generated: \" + generatedDate + \"\\n\";\n  reportText += \"Trip Status: Completed\\n\";\n  reportText += \"=================================\\n\";\n  return {\n    success: true,\n    report_text: reportText,\n    trip_name: tripName,\n    total: total,\n    budget: budget,\n    remaining: remaining,\n    categories: cats,\n    expense_count: expenses.length\n  };\n};",
+                "packageJson": "{}"
+              },
+              "sampleData": {},
+              "propertySettings": {
+                "tripData": {
+                  "type": "MANUAL"
+                },
+                "expenses": {
+                  "type": "MANUAL"
+                },
+                "tripId": {
+                  "type": "MANUAL"
+                }
+              },
+              "errorHandlingOptions": {
+                "retryOnFailure": {
+                  "value": false
+                },
+                "continueOnFailure": {
+                  "value": false
+                }
+              }
+            },
+            "nextAction": {
+              "name": "step_4",
+              "type": "ROUTER",
+              "displayName": "Route by Report Generation",
+              "valid": true,
+              "skip": false,
+              "settings": {
+                "branches": [
+                  {
+                    "branchName": "Generation Failed",
+                    "branchType": "CONDITION",
+                    "conditions": [
+                      [
+                        {
+                          "operator": "BOOLEAN_IS_FALSE",
+                          "firstValue": "{{step_3['success']}}",
+                          "secondValue": "true",
+                          "caseSensitive": false
+                        }
+                      ]
+                    ]
+                  },
+                  {
+                    "branchName": "Success",
+                    "branchType": "FALLBACK"
+                  }
+                ],
+                "executionType": "EXECUTE_FIRST_MATCH"
+              },
+              "children": [
+                {
+                  "name": "step_err",
+                  "type": "PIECE",
+                  "displayName": "Return Error",
+                  "valid": true,
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@puchoaistudio/tool-webhook",
+                    "pieceVersion": "^2.0.4",
+                    "actionName": "return_response",
+                    "input": {
+                      "responseType": "json",
+                      "respond": "stop",
+                      "fields": {
+                        "success": false,
+                        "error": "{{step_3['error']}}"
+                      }
+                    },
+                    "sampleData": {},
+                    "propertySettings": {
+                      "responseType": {
+                        "type": "MANUAL"
+                      },
+                      "respond": {
+                        "type": "MANUAL"
+                      },
+                      "fields": {
+                        "type": "MANUAL",
+                        "schema": {
+                          "success": {
+                            "type": "SHORT_TEXT",
+                            "required": true,
+                            "displayName": "Success",
+                            "defaultValue": ""
+                          },
+                          "error": {
+                            "type": "SHORT_TEXT",
+                            "required": false,
+                            "displayName": "Error",
+                            "defaultValue": ""
+                          }
+                        }
+                      }
+                    },
+                    "errorHandlingOptions": {
+                      "retryOnFailure": {
+                        "value": false
+                      },
+                      "continueOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": null
+                },
+                {
+                  "name": "step_5",
+                  "type": "PIECE",
+                  "displayName": "Generate PDF",
+                  "valid": true,
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@puchoaistudio/tool-pdf",
+                    "pieceVersion": "^2.0.0",
+                    "actionName": "textToPdf",
+                    "input": {
+                      "text": "{{step_3['report_text']}}"
+                    },
+                    "sampleData": {},
+                    "propertySettings": {
+                      "text": {
+                        "type": "MANUAL"
+                      }
+                    },
+                    "errorHandlingOptions": {
+                      "retryOnFailure": {
+                        "value": true
+                      },
+                      "continueOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": {
+                    "name": "step_6",
+                    "type": "PIECE",
+                    "displayName": "Upload PDF to Google Drive",
+                    "valid": true,
+                    "skip": false,
+                    "settings": {
+                      "pieceName": "@puchoaistudio/tool-google-drive",
+                      "pieceVersion": "^2.0.4",
+                      "actionName": "upload_gdrive_file",
+                      "input": {
+                        "auth": "",
+                        "title": "{{step_3['trip_name']}}_Expense_Report.pdf",
+                        "file": "{{step_5}}",
+                        "include_team_drives": false
+                      },
+                      "sampleData": {},
+                      "propertySettings": {
+                        "auth": {
+                          "type": "MANUAL"
+                        },
+                        "title": {
+                          "type": "MANUAL"
+                        },
+                        "file": {
+                          "type": "MANUAL"
+                        },
+                        "include_team_drives": {
+                          "type": "MANUAL"
+                        },
+                        "folder_id": {
+                          "type": "MANUAL"
+                        }
+                      },
+                      "errorHandlingOptions": {
+                        "retryOnFailure": {
+                          "value": true
+                        },
+                        "continueOnFailure": {
+                          "value": false
+                        }
+                      }
+                    },
+                    "nextAction": {
+                      "name": "step_7",
+                      "type": "CODE",
+                      "displayName": "Extract Report URL",
+                      "valid": true,
+                      "skip": false,
+                      "settings": {
+                        "input": {
+                          "driveResult": "{{step_6}}",
+                          "summary": "{{step_3}}"
+                        },
+                        "sourceCode": {
+                          "code": "export const code = async (inputs) => {\n  const drive = inputs.driveResult || {};\n  const reportUrl = drive.url || drive.webViewLink || drive.id || \"\";\n  return {\n    report_url: reportUrl,\n    total: inputs.summary.total,\n    budget: inputs.summary.budget,\n    remaining: inputs.summary.remaining,\n    categories: inputs.summary.categories,\n    expense_count: inputs.summary.expense_count\n  };\n};",
+                          "packageJson": "{}"
+                        },
+                        "sampleData": {},
+                        "propertySettings": {
+                          "driveResult": {
+                            "type": "MANUAL"
+                          },
+                          "summary": {
+                            "type": "MANUAL"
+                          }
+                        },
+                        "errorHandlingOptions": {
+                          "retryOnFailure": {
+                            "value": false
+                          },
+                          "continueOnFailure": {
+                            "value": false
+                          }
+                        }
+                      },
+                      "nextAction": {
+                        "name": "step_8",
+                        "type": "PIECE",
+                        "displayName": "Update Trip Status to Completed",
+                        "valid": true,
+                        "skip": false,
+                        "settings": {
+                          "pieceName": "@puchoaistudio/tool-google-sheets",
+                          "pieceVersion": "^2.0.9",
+                          "actionName": "find_or_create_row",
+                          "input": {
+                            "auth": "",
+                            "spreadsheetId": "",
+                            "sheetId": 0,
+                            "first_row_headers": true,
+                            "includeTeamDrives": false,
+                            "search_column": "Trip_ID",
+                            "search_value": "{{trigger['body']['trip_id']}}",
+                            "values": {
+                              "Trip_ID": "{{trigger['body']['trip_id']}}",
+                              "Status": "Completed",
+                              "Report_URL": "{{step_7['report_url']}}"
+                            }
+                          },
+                          "sampleData": {},
+                          "propertySettings": {
+                            "auth": { "type": "MANUAL" },
+                            "spreadsheetId": { "type": "MANUAL" },
+                            "sheetId": { "type": "MANUAL" },
+                            "first_row_headers": { "type": "MANUAL" },
+                            "includeTeamDrives": { "type": "MANUAL" },
+                            "search_column": { "type": "MANUAL" },
+                            "search_value": { "type": "MANUAL" },
+                            "values": {
+                              "type": "MANUAL",
+                              "schema": {
+                                "Trip_ID": { "type": "SHORT_TEXT", "required": true, "displayName": "Trip ID", "defaultValue": "" },
+                                "Status": { "type": "SHORT_TEXT", "required": true, "displayName": "Status", "defaultValue": "Completed" },
+                                "Report_URL": { "type": "SHORT_TEXT", "required": false, "displayName": "Report URL", "defaultValue": "" }
+                              }
+                            }
+                          },
+                          "errorHandlingOptions": {
+                            "retryOnFailure": {
+                              "value": true
+                            },
+                            "continueOnFailure": {
+                              "value": false
+                            }
+                          }
+                        },
+                        "nextAction": {
+                          "name": "step_9",
+                          "type": "PIECE",
+                          "displayName": "Return Final Report",
+                          "valid": true,
+                          "skip": false,
+                          "settings": {
+                            "pieceName": "@puchoaistudio/tool-webhook",
+                            "pieceVersion": "^2.0.4",
+                            "actionName": "return_response",
+                            "input": {
+                              "responseType": "json",
+                              "respond": "stop",
+                              "fields": {
+                                "success": true,
+                                "report_url": "{{step_7['report_url']}}",
+                                "total": "{{step_7['total']}}",
+                                "budget": "{{step_7['budget']}}",
+                                "remaining": "{{step_7['remaining']}}",
+                                "categories": "{{step_7['categories']}}",
+                                "expense_count": "{{step_7['expense_count']}}",
+                                "message": "Trip completed and report generated successfully"
+                              }
+                            },
+                            "sampleData": {},
+                            "propertySettings": {
+                              "responseType": {
+                                "type": "MANUAL"
+                              },
+                              "respond": {
+                                "type": "MANUAL"
+                              },
+                              "fields": {
+                                "type": "MANUAL",
+                                "schema": {
+                                  "success": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Success",
+                                    "defaultValue": ""
+                                  },
+                                  "report_url": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Report URL",
+                                    "defaultValue": ""
+                                  },
+                                  "total": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Total",
+                                    "defaultValue": ""
+                                  },
+                                  "budget": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Budget",
+                                    "defaultValue": ""
+                                  },
+                                  "remaining": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Remaining",
+                                    "defaultValue": ""
+                                  },
+                                  "categories": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Categories",
+                                    "defaultValue": ""
+                                  },
+                                  "expense_count": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Expense Count",
+                                    "defaultValue": ""
+                                  },
+                                  "message": {
+                                    "type": "SHORT_TEXT",
+                                    "required": true,
+                                    "displayName": "Message",
+                                    "defaultValue": ""
+                                  }
+                                }
+                              }
+                            },
+                            "errorHandlingOptions": {
+                              "retryOnFailure": {
+                                "value": false
+                              },
+                              "continueOnFailure": {
+                                "value": false
+                              }
+                            }
+                          },
+                          "nextAction": null
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "nextAction": null
+            }
+          }
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}

@@ -1,0 +1,142 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF1 - Login",
+  "description": "Authenticate user by email/password against Google Sheets Users sheet. Sync webhook with return_response.",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-sheets"
+  ],
+  "template": {
+    "displayName": "WF1 - Login",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When login request received",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": { "authType": "none", "authFields": {} },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": { "type": "MANUAL" },
+          "syncMarkdown": { "type": "MANUAL" },
+          "testMarkdown": { "type": "MANUAL" },
+          "authType": { "type": "MANUAL" },
+          "authFields": { "type": "MANUAL", "schema": {} }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "PIECE",
+        "displayName": "Find User by Email",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "pieceName": "@puchoaistudio/tool-google-sheets",
+          "pieceVersion": "^2.0.9",
+          "actionName": "find_rows",
+          "input": {
+            "auth": "",
+            "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+            "sheetId": 0,
+            "columnName": "Email",
+            "searchValue": "{{trigger['body']['email']}}",
+            "matchCase": true,
+            "numberOfRows": 1,
+            "includeTeamDrives": false
+          },
+          "sampleData": {},
+          "propertySettings": {
+            "auth": { "type": "MANUAL" },
+            "spreadsheetId": { "type": "MANUAL" },
+            "sheetId": { "type": "MANUAL" },
+            "columnName": { "type": "MANUAL" },
+            "searchValue": { "type": "MANUAL" },
+            "matchCase": { "type": "MANUAL" },
+            "numberOfRows": { "type": "MANUAL" },
+            "includeTeamDrives": { "type": "MANUAL" },
+            "startingRow": { "type": "MANUAL" }
+          },
+          "errorHandlingOptions": {
+            "retryOnFailure": { "value": true },
+            "continueOnFailure": { "value": false }
+          }
+        },
+        "nextAction": {
+          "name": "step_2",
+          "type": "CODE",
+          "displayName": "Verify Password",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "input": {
+              "userRows": "{{step_1}}",
+              "inputPassword": "{{trigger['body']['password']}}"
+            },
+            "sourceCode": {
+              "code": "export const code = async (inputs) => {\n  let rows = [];\n  if (Array.isArray(inputs.userRows)) {\n    rows = inputs.userRows;\n  } else if (inputs.userRows && typeof inputs.userRows === 'object') {\n    rows = inputs.userRows.data || inputs.userRows.rows || [inputs.userRows];\n    if (!Array.isArray(rows)) rows = [rows];\n  }\n\n  if (rows.length === 0) {\n    return { success: 'false', message: 'Invalid email or password', user_json: '{}' };\n  }\n\n  const row = rows[0];\n  const v = row.values || row;\n  const storedPassword = v.D || row.Password || row.password || '';\n\n  if (storedPassword !== inputs.inputPassword) {\n    return { success: 'false', message: 'Invalid email or password', user_json: '{}' };\n  }\n\n  const userObj = {\n    user_id: v.A || row.User_ID || row.user_id || '',\n    name:    v.B || row.Name    || row.name    || '',\n    email:   v.C || row.Email   || row.email   || '',\n    role:    v.E || row.Role    || row.role    || 'Employee'\n  };\n\n  return {\n    success: 'true',\n    message: 'Login successful',\n    user_json: JSON.stringify(userObj)\n  };\n};",
+              "packageJson": "{}"
+            },
+            "sampleData": {},
+            "propertySettings": {
+              "userRows": { "type": "MANUAL" },
+              "inputPassword": { "type": "MANUAL" }
+            },
+            "errorHandlingOptions": {
+              "retryOnFailure": { "value": false },
+              "continueOnFailure": { "value": false }
+            }
+          },
+          "nextAction": {
+            "name": "step_3",
+            "type": "PIECE",
+            "displayName": "Return Login Response",
+            "valid": true,
+            "skip": false,
+            "settings": {
+              "pieceName": "@puchoaistudio/tool-webhook",
+              "pieceVersion": "^2.0.4",
+              "actionName": "return_response",
+              "input": {
+                "responseType": "json",
+                "respond": "stop",
+                "fields": {
+                  "success": "\"{{step_2['success']}}\"",
+                  "message": "\"{{step_2['message']}}\"",
+                  "user": "\"{{step_2['user_json']}}\""
+                }
+              },
+              "sampleData": {},
+              "propertySettings": {
+                "responseType": { "type": "MANUAL" },
+                "respond": { "type": "MANUAL" },
+                "fields": {
+                  "type": "MANUAL",
+                  "schema": {
+                    "success": { "type": "SHORT_TEXT", "required": true, "displayName": "Success", "defaultValue": "" },
+                    "message": { "type": "SHORT_TEXT", "required": false, "displayName": "Message", "defaultValue": "" },
+                    "user": { "type": "SHORT_TEXT", "required": false, "displayName": "User", "defaultValue": "" }
+                  }
+                }
+              },
+              "errorHandlingOptions": {
+                "retryOnFailure": { "value": false },
+                "continueOnFailure": { "value": false }
+              }
+            },
+            "nextAction": null
+          }
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}

@@ -1,0 +1,119 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF7 - List Trips",
+  "description": "Fetch all trips for a user from Google Sheets Trips sheet. Sync webhook with return_response Raw.",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-sheets"
+  ],
+  "template": {
+    "displayName": "WF7 - List Trips",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When list trips request received",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": { "authType": "none", "authFields": {} },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": { "type": "MANUAL" },
+          "syncMarkdown": { "type": "MANUAL" },
+          "testMarkdown": { "type": "MANUAL" },
+          "authType": { "type": "MANUAL" },
+          "authFields": { "type": "MANUAL", "schema": {} }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "PIECE",
+        "displayName": "Find Trips for User",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "pieceName": "@puchoaistudio/tool-google-sheets",
+          "pieceVersion": "^2.0.9",
+          "actionName": "find_rows",
+          "input": {
+            "auth": "",
+            "spreadsheetId": "1gQBDr0PqqNgYF8Od2Rmc01jEQOXOecG1xsjyJpqI84I",
+            "sheetId": "1778620388",
+            "columnName": "User_ID",
+            "searchValue": "{{trigger['body']['user_id']}}",
+            "matchCase": false,
+            "numberOfRows": 500,
+            "includeTeamDrives": false
+          },
+          "sampleData": {},
+          "propertySettings": {
+            "auth": { "type": "MANUAL" },
+            "spreadsheetId": { "type": "MANUAL" },
+            "sheetId": { "type": "MANUAL" },
+            "columnName": { "type": "MANUAL" },
+            "searchValue": { "type": "MANUAL" },
+            "matchCase": { "type": "MANUAL" },
+            "numberOfRows": { "type": "MANUAL" },
+            "includeTeamDrives": { "type": "MANUAL" },
+            "startingRow": { "type": "MANUAL" }
+          },
+          "errorHandlingOptions": {
+            "retryOnFailure": { "value": true },
+            "continueOnFailure": { "value": false }
+          }
+        },
+        "nextAction": {
+          "name": "step_2",
+          "type": "CODE",
+          "displayName": "Normalize Trip Data",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "input": { "trips": "{{step_1}}" },
+            "sourceCode": {
+              "code": "export const code = async (inputs) => {\n  let rows = [];\n  const raw = inputs.trips;\n  if (Array.isArray(raw)) {\n    rows = raw;\n  } else if (raw && typeof raw === 'object') {\n    const objVals = Object.values(raw);\n    if (objVals.length > 0 && objVals[0] && typeof objVals[0] === 'object' && (objVals[0] as any).values) {\n      rows = objVals;\n    } else {\n      rows = raw.data || raw.rows || objVals;\n      if (!Array.isArray(rows)) rows = [rows];\n    }\n  }\n\n  const trips = rows.map((r) => {\n    const row = r as any;\n    const v = (row && row.values) ? row.values : (row || {});\n    // Trips sheet: A=Trip_ID, B=User_ID, C=Trip_Name, D=Source, E=Destination, F=Start_Date, G=End_Date, H=Purpose, I=Budget, J=Status\n    return {\n      trip_id:   String(v.A || row.Trip_ID || row.trip_id || '').trim(),\n      user_id:   String(v.B || row.User_ID || row.user_id || '').trim(),\n      trip_name: String(v.C || row.Trip_Name || row.trip_name || '').trim(),\n      source:    String(v.D || row.Source || row.source || '').trim(),\n      destination: String(v.E || row.Destination || row.destination || '').trim(),\n      start_date: String(v.F || row.Start_Date || row.start_date || '').trim(),\n      end_date:   String(v.G || row.End_Date || row.end_date || '').trim(),\n      purpose:    String(v.H || row.Purpose || row.purpose || '').trim(),\n      budget:     parseFloat(v.I || row.Budget || row.budget || 0),\n      status:     String(v.J || row.Status || row.status || 'Active').trim()\n    };\n  });\n\n  const response = { success: true, trips: trips };\n  return { response_body: JSON.stringify(response) };\n};",
+              "packageJson": "{}"
+            },
+            "sampleData": {},
+            "propertySettings": { "trips": { "type": "MANUAL" } },
+            "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+          },
+          "nextAction": {
+            "name": "step_3",
+            "type": "PIECE",
+            "displayName": "Return Trip List",
+            "valid": true,
+            "skip": false,
+            "settings": {
+              "pieceName": "@puchoaistudio/tool-webhook",
+              "pieceVersion": "^2.0.4",
+              "actionName": "return_response",
+              "input": {
+                "responseType": "Raw",
+                "respond": "stop",
+                "fields": { "body": "{{step_2['response_body']}}" }
+              },
+              "sampleData": {},
+              "propertySettings": {
+                "responseType": { "type": "MANUAL" },
+                "respond": { "type": "MANUAL" },
+                "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+              },
+              "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+            },
+            "nextAction": null
+          }
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}

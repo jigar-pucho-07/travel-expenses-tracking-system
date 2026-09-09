@@ -1,0 +1,252 @@
+{
+  "created": 1756896000000,
+  "updated": 1756896000000,
+  "name": "WF4 - Process Receipt (Base64 Upload + OCR)",
+  "description": "Receive receipt file as base64, upload to Google Drive, run OCR to extract expense fields, return structured data + receipt URL via sync webhook. Base64 → Drive → OCR → return_response Raw.",
+  "tags": [],
+  "pieces": [
+    "@puchoaistudio/tool-webhook",
+    "@puchoaistudio/tool-google-drive",
+    "@puchoaistudio/tool-ocr-analytics"
+  ],
+  "template": {
+    "displayName": "WF4 - Process Receipt",
+    "trigger": {
+      "name": "trigger",
+      "type": "TOOL_TRIGGER",
+      "displayName": "When receipt upload received",
+      "valid": true,
+      "settings": {
+        "pieceName": "@puchoaistudio/tool-webhook",
+        "pieceVersion": "^2.0.4",
+        "triggerName": "catch_webhook",
+        "input": {
+          "authType": "none",
+          "authFields": {}
+        },
+        "sampleData": {},
+        "propertySettings": {
+          "liveMarkdown": { "type": "MANUAL" },
+          "syncMarkdown": { "type": "MANUAL" },
+          "testMarkdown": { "type": "MANUAL" },
+          "authType": { "type": "MANUAL" },
+          "authFields": { "type": "MANUAL", "schema": {} }
+        }
+      },
+      "nextAction": {
+        "name": "step_1",
+        "type": "CODE",
+        "displayName": "Validate Input",
+        "valid": true,
+        "skip": false,
+        "settings": {
+          "input": {
+            "body": "{{trigger['body']}}"
+          },
+          "sourceCode": {
+            "code": "export const code = async (inputs) => {\n  let b = inputs.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }\n  if (!b || typeof b !== 'object') b = {};\n  if (!b.file_data) {\n    const response = { success: false, message: 'file_data is required', errors: ['No file data received'] };\n    return { response_body: JSON.stringify(response) };\n  }\n  const ts = Date.now().toString(36);\n  const cleanName = (b.file_name || 'receipt.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');\n  const fileName = 'receipt_' + ts + '_' + cleanName;\n  return {\n    success: true,\n    file_data: b.file_data,\n    file_name: fileName,\n    file_type: b.file_type || 'image/jpeg'\n  };\n};",
+            "packageJson": "{}"
+          },
+          "sampleData": {},
+          "propertySettings": {
+            "body": { "type": "MANUAL" }
+          },
+          "errorHandlingOptions": {
+            "retryOnFailure": { "value": false },
+            "continueOnFailure": { "value": false }
+          }
+        },
+        "nextAction": {
+          "name": "step_router",
+          "type": "ROUTER",
+          "displayName": "Route by Validation",
+          "valid": true,
+          "skip": false,
+          "settings": {
+            "branches": [
+              {
+                "branchName": "Invalid",
+                "branchType": "CONDITION",
+                "conditions": [
+                  [
+                    {
+                      "operator": "BOOLEAN_IS_FALSE",
+                      "firstValue": "{{step_1['success']}}",
+                      "secondValue": "true",
+                      "caseSensitive": false
+                    }
+                  ]
+                ]
+              },
+              {
+                "branchName": "Valid",
+                "branchType": "FALLBACK"
+              }
+            ],
+            "executionType": "EXECUTE_FIRST_MATCH",
+            "sampleData": {}
+          },
+          "children": [
+            {
+              "name": "step_err",
+              "type": "PIECE",
+              "displayName": "Return Validation Error",
+              "valid": true,
+              "skip": false,
+              "settings": {
+                "pieceName": "@puchoaistudio/tool-webhook",
+                "pieceVersion": "^2.0.4",
+                "actionName": "return_response",
+                "input": {
+                  "responseType": "Raw",
+                  "respond": "stop",
+                  "fields": { "body": "{{step_1['response_body']}}" }
+                },
+                "sampleData": {},
+                "propertySettings": {
+                  "responseType": { "type": "MANUAL" },
+                  "respond": { "type": "MANUAL" },
+                  "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+                },
+                "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+              },
+              "nextAction": null
+            },
+            {
+              "name": "step_2",
+              "type": "PIECE",
+              "displayName": "Upload Receipt to Google Drive",
+              "valid": true,
+              "skip": false,
+              "settings": {
+                "pieceName": "@puchoaistudio/tool-google-drive",
+                "pieceVersion": "^2.0.4",
+                "actionName": "upload_gdrive_file",
+                "input": {
+                  "auth": "",
+                  "title": "{{step_1['file_name']}}",
+                  "file": "{{step_1['file_data']}}",
+                  "include_team_drives": false
+                },
+                "sampleData": {},
+                "propertySettings": {
+                  "auth": { "type": "MANUAL" },
+                  "title": { "type": "MANUAL" },
+                  "file": { "type": "MANUAL" },
+                  "include_team_drives": { "type": "MANUAL" },
+                  "folder_id": { "type": "MANUAL" }
+                },
+                "errorHandlingOptions": {
+                  "retryOnFailure": { "value": true },
+                  "continueOnFailure": { "value": false }
+                }
+              },
+              "nextAction": {
+                "name": "step_3",
+                "type": "CODE",
+                "displayName": "Extract Drive URL",
+                "valid": true,
+                "skip": false,
+                "settings": {
+                  "input": { "driveResult": "{{step_2}}" },
+                  "sourceCode": {
+                    "code": "export const code = async (inputs) => {\n  const d = inputs.driveResult || {};\n  const fileUrl = d.webViewLink || d.url || d.id || '';\n  const fileId = d.id || '';\n  return { receipt_url: fileUrl, file_id: fileId };\n};",
+                    "packageJson": "{}"
+                  },
+                  "sampleData": {},
+                  "propertySettings": { "driveResult": { "type": "MANUAL" } },
+                  "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                },
+                "nextAction": {
+                  "name": "step_4",
+                  "type": "PIECE",
+                  "displayName": "OCR - Extract Receipt Data",
+                  "valid": true,
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@puchoaistudio/tool-ocr-analytics",
+                    "pieceVersion": "^2.1.1",
+                    "actionName": "askImage/PDF",
+                    "input": {
+                      "url": "{{step_3['receipt_url']}}",
+                      "model": "openrouter/anthropic/claude-sonnet-4.5",
+                      "query": "Extract the following expense information from this receipt/bill. Return ONLY a valid JSON object with these fields:\n- merchant: The merchant/vendor name\n- date: The transaction date in YYYY-MM-DD format\n- amount: The total amount as a number (without currency symbol)\n- tax: Any tax amount shown (as a number, or 0 if not found)\n- invoice_number: Invoice or bill number if visible\n- category: Best guess at expense category from: Transportation, Hotel, Food, Cab, Other\n\nIf any field cannot be extracted, set it to empty string or 0.",
+                      "puchoModelKey": "openrouter/anthropic/claude-sonnet-4.5",
+                      "puchoProviderName": "OpenRouter"
+                    },
+                    "sampleData": {},
+                    "propertySettings": {
+                      "url": { "type": "MANUAL" },
+                      "model": { "type": "MANUAL" },
+                      "query": { "type": "MANUAL" },
+                      "puchoModelKey": { "type": "MANUAL" },
+                      "puchoProviderName": { "type": "MANUAL" }
+                    },
+                    "errorHandlingOptions": {
+                      "retryOnFailure": { "value": true },
+                      "continueOnFailure": { "value": false }
+                    }
+                  },
+                  "nextAction": {
+                    "name": "step_5",
+                    "type": "CODE",
+                    "displayName": "Parse OCR Output",
+                    "valid": true,
+                    "skip": false,
+                    "settings": {
+                      "input": {
+                        "ocrOutput": "{{step_4['data']['response']}}",
+                        "receiptUrl": "{{step_3['receipt_url']}}"
+                      },
+                      "sourceCode": {
+                        "code": "export const code = async (inputs) => {\n  const t = String(inputs.ocrOutput || '');\n  const m = t.match(/\\{[\\s\\S]*\\}/);\n  let parsed = { merchant: '', date: '', amount: 0, tax: 0, invoice_number: '', category: '' };\n  try {\n    if (m) parsed = JSON.parse(m[0]);\n  } catch (e) {\n    const response = { success: false, message: 'Failed to parse OCR output', raw: t };\n    return { response_body: JSON.stringify(response) };\n  }\n  const amount = parseFloat(parsed.amount) || 0;\n  if (amount <= 0) {\n    const response = { success: false, message: 'Could not extract a valid amount from receipt' };\n    return { response_body: JSON.stringify(response) };\n  }\n  const response = {\n    success: true,\n    extracted: {\n      merchant: String(parsed.merchant || ''),\n      date: String(parsed.date || ''),\n      amount: amount,\n      tax: parseFloat(parsed.tax) || 0,\n      invoice_number: String(parsed.invoice_number || ''),\n      category: String(parsed.category || 'Other')\n    },\n    receipt_url: inputs.receiptUrl\n  };\n  return { response_body: JSON.stringify(response) };\n};",
+                        "packageJson": "{}"
+                      },
+                      "sampleData": {},
+                      "propertySettings": {
+                        "ocrOutput": { "type": "MANUAL" },
+                        "receiptUrl": { "type": "MANUAL" }
+                      },
+                      "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                    },
+                    "nextAction": {
+                      "name": "step_6",
+                      "type": "PIECE",
+                      "displayName": "Return OCR Result",
+                      "valid": true,
+                      "skip": false,
+                      "settings": {
+                        "pieceName": "@puchoaistudio/tool-webhook",
+                        "pieceVersion": "^2.0.4",
+                        "actionName": "return_response",
+                        "input": {
+                          "responseType": "Raw",
+                          "respond": "stop",
+                          "fields": { "body": "{{step_5['response_body']}}" }
+                        },
+                        "sampleData": {},
+                        "propertySettings": {
+                          "responseType": { "type": "MANUAL" },
+                          "respond": { "type": "MANUAL" },
+                          "fields": { "type": "MANUAL", "schema": { "body": { "type": "SHORT_TEXT", "required": true, "displayName": "Body", "defaultValue": "" } } }
+                        },
+                        "errorHandlingOptions": { "retryOnFailure": { "value": false }, "continueOnFailure": { "value": false } }
+                      },
+                      "nextAction": null
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "nextAction": null
+        }
+      }
+    },
+    "valid": true,
+    "agentIds": [],
+    "connectionIds": [],
+    "schemaVersion": "7"
+  },
+  "blogUrl": ""
+}
