@@ -33,7 +33,7 @@ export default function AddExpense() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const tripId = location.state?.tripId || 'TRIP-1001';
+  const tripId = location.state?.tripId || '';
   const fileInputRef = useRef(null);
 
   const [mode, setMode] = useState('manual');
@@ -54,6 +54,7 @@ export default function AddExpense() {
   // ─── Manual Submit ────────────────────────────────────────────
   const handleManualSubmit = async (e) => {
     e.preventDefault();
+    if (!tripId) { toast.error('Trip ID is missing'); return; }
     if (!form.expense_date || !form.category || !form.amount) {
       toast.error('Please fill in date, category, and amount');
       return;

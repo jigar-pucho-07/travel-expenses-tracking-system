@@ -18,7 +18,7 @@ export default function TripDetails() {
   const location = useLocation();
   const navigate = useNavigate();
   const tripFromNav = location.state?.trip;
-  const tripId = location.state?.tripId || 'TRIP-1001';
+  const tripId = location.state?.tripId || '';
 
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -114,7 +114,7 @@ export default function TripDetails() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => navigate('/add-expense', { state: { tripId } })}
+            <button onClick={() => { if (!tripId) { toast.error('Trip ID is missing'); return; } navigate('/add-expense', { state: { tripId } }); }}
               className="flex items-center gap-2 h-10 px-4 rounded-full text-sm font-medium text-white shadow-soft hover:brightness-105 transition-all"
               style={{ background: 'linear-gradient(180deg,#5833EF 0%,#3A10CE 100%)' }}>
               <Plus className="w-4 h-4" /> Add Expense
@@ -196,7 +196,7 @@ export default function TripDetails() {
         {(!s.recent_expenses || s.recent_expenses.length === 0) ? (
           <div className="text-center py-8">
             <p className="text-sm text-ink-muted">No expenses recorded yet.</p>
-            <button onClick={() => navigate('/add-expense', { state: { tripId } })}
+            <button onClick={() => { if (!tripId) { toast.error('Trip ID is missing'); return; } navigate('/add-expense', { state: { tripId } }); }}
               className="mt-3 h-9 px-4 rounded-full text-sm font-medium text-brand bg-brand-50 hover:bg-brand-100">
               Add Your First Expense
             </button>
