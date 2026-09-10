@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Download, CheckCircle, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { FileText, Download, CheckCircle, ExternalLink } from 'lucide-react';
 import { triggerWorkflow } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,19 +13,23 @@ export default function Reports() {
   const { user } = useAuth();
   const [completedTrips, setCompletedTrips] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(null); // trip_id being generated
-  const [report, setReport] = useState(null);
+  const [error, setError] = useState(null);
 
   const fetchTrips = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const res = await triggerWorkflow('list_trips', { user_id: user?.user_id || 'USR-1001' });
+      const res = await triggerWorkflow('list_trips', { user_id: user?.user_id || 'U001' });
       if (res.success) {
         const raw = typeof res.trips === 'string' ? JSON.parse(res.trips) : (res.trips || []);
-        setCompletedTrips(raw.filter(t => t.status === 'Completed'));
+        // Show all completed trips — display existing report_url if available
+        const completed = raw.filter(t => (t.status || t.Status) === 'Completed');
+        setCompletedTrips(completed);
+      } else {
+        setError('Failed to load reports');
       }
     } catch (e) {
-      console.error('Failed to load trips', e);
+      setError(e.message || 'Failed to load reports');
     } finally {
       setLoading(false);
     }
@@ -34,27 +37,11 @@ export default function Reports() {
 
   useEffect(() => { fetchTrips(); }, [user]);
 
-  const handleGenerate = async (tripId) => {
-    setGenerating(tripId);
-    try {
-      const res = await triggerWorkflow('complete_trip', { trip_id: tripId });
-      if (res.success) {
-        setReport({ ...res, trip_id: tripId });
-        toast.success('Report generated!');
-      } else {
-        toast.error(res.error || 'Failed to generate report');
-      }
-    } catch (e) {
-      toast.error(e.message || 'Failed to generate report');
-    } finally {
-      setGenerating(null);
-    }
-  };
-
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="bg-white rounded-2xl h-48 animate-pulse" />
+        {[...Array(3)].map((_, i) => <div key={i} className="bg-white rounded-2xl h-20 animate-pulse" />)}
       </div>
     );
   }
@@ -68,11 +55,18 @@ export default function Reports() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-ink">Expense Reports</h2>
-            <p className="text-xs text-ink-muted">Download PDF reports for completed trips</p>
+            <p className="text-xs text-ink-muted">View and download PDF reports for completed trips</p>
           </div>
         </div>
 
-        {completedTrips.length === 0 ? (
+        {error && (
+          <div className="text-center py-4">
+            <p className="text-sm text-err mb-2">{error}</p>
+            <button onClick={fetchTrips} className="h-9 px-4 rounded-full text-sm font-medium text-brand bg-brand-50 hover:bg-brand-100">Retry</button>
+          </div>
+        )}
+
+        {!error && completedTrips.length === 0 && (
           <div className="text-center py-8">
             <p className="text-sm text-ink-muted">No completed trips yet. Complete a trip to generate its report.</p>
             <button onClick={() => navigate('/trips')}
@@ -80,56 +74,52 @@ export default function Reports() {
               View Trips
             </button>
           </div>
-        ) : (
+        )}
+
+        {!error && completedTrips.length > 0 && (
           <div className="space-y-3">
-            {completedTrips.map(trip => (
-              <div key={trip.trip_id} className="flex items-center justify-between p-3 rounded-xl bg-canvas-soft">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-ok-bg flex items-center justify-center">
-                    <CheckCircle className="w-5 h-5 text-ok" />
+            {completedTrips.map(trip => {
+              const hasReport = !!(trip.report_url || trip.Report_URL);
+              const reportUrl = trip.report_url || trip.Report_URL || '';
+
+              return (
+                <div key={trip.trip_id} className="flex items-center justify-between p-4 rounded-xl bg-canvas-soft">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${hasReport ? 'bg-ok-bg' : 'bg-off-bg'}`}>
+                      <CheckCircle className={`w-5 h-5 ${hasReport ? 'text-ok' : 'text-off'}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-ink truncate">{trip.trip_name}</p>
+                        {!hasReport && <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex-shrink-0">No Report</span>}
+                      </div>
+                      <p className="text-xs text-ink-muted truncate">{trip.destination} · {trip.trip_id} · {trip.start_date} — {trip.end_date}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-ink">{trip.trip_name}</p>
-                    <p className="text-xs text-ink-muted">{trip.destination} · {trip.start_date} — {trip.end_date}</p>
+                  <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                    <span className="text-sm font-medium text-ink whitespace-nowrap">₹{(trip.budget || 0).toLocaleString('en-IN')}</span>
+                    {hasReport ? (
+                      <a href={reportUrl} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 h-9 px-4 rounded-full text-xs font-medium text-white transition-all hover:brightness-105 whitespace-nowrap"
+                        style={{ background: 'linear-gradient(180deg,#5833EF 0%,#3A10CE 100%)' }}>
+                        <Download className="w-3.5 h-3.5" /> Download Report
+                      </a>
+                    ) : (
+                      <button onClick={() => navigate('/trips', { state: { tripId: trip.trip_id, trip } })}
+                        className="flex items-center gap-1.5 h-9 px-4 rounded-full text-xs font-medium text-ink-muted bg-white border border-gray-200 hover:bg-canvas-soft transition-colors whitespace-nowrap">
+                        <ExternalLink className="w-3.5 h-3.5" /> Complete Trip
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-ink">₹{(trip.budget || 0).toLocaleString('en-IN')}</span>
-                  <button onClick={() => handleGenerate(trip.trip_id)} disabled={generating === trip.trip_id}
-                    className="flex items-center gap-1.5 h-9 px-4 rounded-full text-xs font-medium text-brand bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-60">
-                    {generating === trip.trip_id ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating...</> : <><Download className="w-3.5 h-3.5" /> Download PDF</>}
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
+            <p className="text-xs text-ink-muted text-center pt-2">
+              Reports are generated when you complete a trip from Trip Details. Download existing reports above.
+            </p>
           </div>
         )}
       </Card>
-
-      {report && (
-        <Card>
-          <h3 className="text-sm font-semibold text-ink mb-4">Report Summary — {report.trip_id}</h3>
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="bg-canvas-soft rounded-xl p-3">
-              <p className="text-xs text-ink-muted">Total Budget</p>
-              <p className="text-lg font-bold text-ink">₹{(report.budget || 0).toLocaleString('en-IN')}</p>
-            </div>
-            <div className="bg-canvas-soft rounded-xl p-3">
-              <p className="text-xs text-ink-muted">Total Spent</p>
-              <p className="text-lg font-bold text-ink">₹{(report.total || 0).toLocaleString('en-IN')}</p>
-            </div>
-            <div className="bg-canvas-soft rounded-xl p-3">
-              <p className="text-xs text-ink-muted">Remaining</p>
-              <p className="text-lg font-bold text-ok">₹{(report.remaining || 0).toLocaleString('en-IN')}</p>
-            </div>
-          </div>
-          {report.report_url && (
-            <p className="text-xs text-ink-muted">
-              Report URL: <a href={report.report_url} target="_blank" rel="noopener noreferrer" className="text-brand underline break-all">{report.report_url}</a>
-            </p>
-          )}
-        </Card>
-      )}
     </div>
   );
 }
