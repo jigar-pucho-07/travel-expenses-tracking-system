@@ -390,6 +390,54 @@ export async function completeTrip(trip_id) {
   return callWorkflow('complete_trip', { trip_id });
 }
 
+/** WF6: Complete Trip — REAL webhook call bypassing mock mode. */
+export async function completeTripReal(trip_id) {
+  const url = import.meta.env.VITE_WF_COMPLETE_TRIP;
+  console.debug('[WF6] Real webhook URL:', url || 'NOT SET');
+  if (!url) { console.debug('[WF6] No URL — falling back to mock'); return callWorkflow('complete_trip', { trip_id }); }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let httpRes, rawBody;
+    try {
+      httpRes = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_id }),
+        signal: controller.signal,
+      });
+      rawBody = await httpRes.text();
+    } finally { clearTimeout(timeoutId); }
+
+    console.debug('[WF6] HTTP', httpRes.status, 'Body:', rawBody.substring(0, 400));
+
+    let parsed;
+    try { parsed = JSON.parse(rawBody); } catch {
+      const m = rawBody.match(/\{[\s\S]*\}/);
+      if (m) parsed = JSON.parse(m[0]); else throw new Error('Invalid response');
+    }
+    if (parsed.body && typeof parsed.body === 'string') { try { parsed = JSON.parse(parsed.body); } catch {} }
+
+    return {
+      success: parsed.success === true || parsed.success === 'true' || parsed.success === 'True',
+      report_url: parsed.report_url || '',
+      total: parseFloat(parsed.total) || 0,
+      budget: parseFloat(parsed.budget) || 0,
+      remaining: parseFloat(parsed.remaining) || 0,
+      categories: parsed.categories || {},
+      expense_count: parseInt(parsed.expense_count) || 0,
+      message: parsed.message || '',
+    };
+  } catch (err) {
+    const message = err.name === 'AbortError'
+      ? 'Trip completion timed out. Please try again.'
+      : 'Unable to complete trip. Please try again.';
+    console.error('[WF6] Real call failed:', message, err.message);
+    return { success: false, message };
+  }
+}
+
 // ─── Mock Responses (development only) ─────────────────────────
 let mockTripCounter = 1000;
 let mockExpenseCounter = 1000;
@@ -529,7 +577,7 @@ export const triggerWorkflow = (action, payload) => {
     case 'add_expense': return addExpenseReal(payload);
     case 'process_receipt': return processReceiptReal(payload);
     case 'trip_summary': return getTripSummaryReal(payload.trip_id, payload.budget);
-    case 'complete_trip': return completeTrip(payload.trip_id);
+    case 'complete_trip': return completeTripReal(payload.trip_id);
     case 'list_trips': return listTrips(payload.user_id);
     default: throw new Error(`Unknown action: ${action}`);
   }
