@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Download, CheckCircle, ExternalLink } from 'lucide-react';
-import { triggerWorkflow } from '../services/api';
+import { triggerWorkflow, listReportsReal } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 function Card({ children, className = '' }) {
@@ -11,22 +11,40 @@ function Card({ children, className = '' }) {
 export default function Reports() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const userId = user?.user_id || 'U001';
   const [completedTrips, setCompletedTrips] = useState([]);
+  const [reportsMap, setReportsMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchTrips = async () => {
+  const fetchReports = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await triggerWorkflow('list_trips', { user_id: user?.user_id || 'U001' });
-      if (res.success) {
-        const raw = typeof res.trips === 'string' ? JSON.parse(res.trips) : (res.trips || []);
-        // Show all completed trips — display existing report_url if available
-        const completed = raw.filter(t => (t.status || t.Status) === 'Completed');
-        setCompletedTrips(completed);
+      // Parallel: fetch completed trips (WF7) + existing reports (WF8)
+      const [tripRes, reportRes] = await Promise.all([
+        triggerWorkflow('list_trips', { user_id: userId }),
+        listReportsReal(userId),
+      ]);
+
+      // Build reports lookup: trip_id → report_url
+      const map = {};
+      if (reportRes.success && reportRes.reports) {
+        (reportRes.reports || []).forEach(r => {
+          const tid = r.trip_id || r.Trip_ID || '';
+          if (tid && (r.report_url || r.Report_URL)) {
+            map[tid] = r.report_url || r.Report_URL;
+          }
+        });
+      }
+      setReportsMap(map);
+
+      // Completed trips from WF7
+      if (tripRes.success) {
+        const raw = typeof tripRes.trips === 'string' ? JSON.parse(tripRes.trips) : (tripRes.trips || []);
+        setCompletedTrips(raw.filter(t => (t.status || t.Status) === 'Completed'));
       } else {
-        setError('Failed to load reports');
+        setError('Failed to load trips');
       }
     } catch (e) {
       setError(e.message || 'Failed to load reports');
@@ -35,7 +53,7 @@ export default function Reports() {
     }
   };
 
-  useEffect(() => { fetchTrips(); }, [user]);
+  useEffect(() => { fetchReports(); }, [user]);
 
   if (loading) {
     return (
@@ -62,7 +80,7 @@ export default function Reports() {
         {error && (
           <div className="text-center py-4">
             <p className="text-sm text-err mb-2">{error}</p>
-            <button onClick={fetchTrips} className="h-9 px-4 rounded-full text-sm font-medium text-brand bg-brand-50 hover:bg-brand-100">Retry</button>
+            <button onClick={fetchReports} className="h-9 px-4 rounded-full text-sm font-medium text-brand bg-brand-50 hover:bg-brand-100">Retry</button>
           </div>
         )}
 
@@ -79,8 +97,8 @@ export default function Reports() {
         {!error && completedTrips.length > 0 && (
           <div className="space-y-3">
             {completedTrips.map(trip => {
-              const hasReport = !!(trip.report_url || trip.Report_URL);
-              const reportUrl = trip.report_url || trip.Report_URL || '';
+              const reportUrl = trip.report_url || trip.Report_URL || reportsMap[trip.trip_id] || '';
+              const hasReport = !!reportUrl;
 
               return (
                 <div key={trip.trip_id} className="flex items-center justify-between p-4 rounded-xl bg-canvas-soft">

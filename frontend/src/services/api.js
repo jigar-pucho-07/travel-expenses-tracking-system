@@ -569,6 +569,45 @@ export async function listTrips(user_id) {
   }
 }
 
+export async function listReportsReal(user_id) {
+  const url = import.meta.env.VITE_WF_LIST_REPORTS;
+  console.debug('[WF8] Real webhook URL:', url || 'NOT SET');
+  if (!url) { return { success: true, reports: [] }; }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    let httpRes, rawBody;
+    try {
+      httpRes = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id }),
+        signal: controller.signal,
+      });
+      rawBody = await httpRes.text();
+    } finally { clearTimeout(timeoutId); }
+
+    console.debug('[WF8] HTTP', httpRes.status, 'Body:', rawBody.substring(0, 300));
+
+    let parsed;
+    try { parsed = JSON.parse(rawBody); } catch {
+      const m = rawBody.match(/\{[\s\S]*\}/);
+      if (m) parsed = JSON.parse(m[0]); else return { success: true, reports: [] };
+    }
+    if (parsed.body && typeof parsed.body === 'string') { try { parsed = JSON.parse(parsed.body); } catch {} }
+
+    let reports = parsed.reports;
+    if (typeof reports === 'string') { try { reports = JSON.parse(reports); } catch {} }
+
+    console.debug('[WF8] Reports loaded:', Array.isArray(reports) ? reports.length : 0);
+    return { success: true, reports: reports || [] };
+  } catch (err) {
+    console.error('[WF8] Failed:', err.message);
+    return { success: true, reports: [] };
+  }
+}
+
 // ─── Legacy compatibility (for existing code transitioning) ────
 export const triggerWorkflow = (action, payload) => {
   switch (action) {
@@ -579,6 +618,7 @@ export const triggerWorkflow = (action, payload) => {
     case 'trip_summary': return getTripSummaryReal(payload.trip_id, payload.budget);
     case 'complete_trip': return completeTripReal(payload.trip_id);
     case 'list_trips': return listTrips(payload.user_id);
+    case 'list_reports': return listReportsReal(payload.user_id);
     default: throw new Error(`Unknown action: ${action}`);
   }
 };
