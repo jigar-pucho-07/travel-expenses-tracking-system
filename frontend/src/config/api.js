@@ -64,11 +64,6 @@ export function loadWebhookUrls() {
     // Force disable mock
     window.__TRAVEL_DISABLE_MOCK = true;
   }
-  // Auto-detect: if all URLs are provided, disable mock
-  const allSet = Object.values(WORKFLOW).every(w => w.url);
-  if (allSet) {
-    window.__TRAVEL_DISABLE_MOCK = true;
-  }
   if (!hasAnyUrl) {
     console.info(
       '%c[Travel Tracker] %cMock mode active — no webhook URLs configured. %cSet VITE_WF_* in .env to enable real API calls.',
