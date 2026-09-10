@@ -18,9 +18,13 @@ export default function TripDetails() {
   const location = useLocation();
   const navigate = useNavigate();
   const tripFromNav = location.state?.trip;
-  const [resolvedTripId, setResolvedTripId] = useState(location.state?.tripId || '');
+  const [resolvedTripId, setResolvedTripId] = useState(
+    location.state?.tripId || localStorage.getItem('tripDetails_tripId') || ''
+  );
   const [resolvedTrip, setResolvedTrip] = useState(location.state?.trip || null);
-  const [resolving, setResolving] = useState(!location.state?.tripId);
+  const [resolving, setResolving] = useState(
+    !(location.state?.tripId || localStorage.getItem('tripDetails_tripId'))
+  );
 
   const tripId = resolvedTripId;
   const tripFromNavActive = resolvedTrip || tripFromNav;
@@ -30,24 +34,31 @@ export default function TripDetails() {
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState(null);
 
-  // Auto-select latest trip when no trip_id provided
+  // Persist current trip_id across browser refreshes
   useEffect(() => {
-    if (resolvedTripId) { setResolving(false); return; }
-    setResolving(true);
+    if (resolvedTripId) {
+      localStorage.setItem('tripDetails_tripId', resolvedTripId);
+    }
+  }, [resolvedTripId]);
+
+  // Resolve real trip details when trip object not available (direct load / refresh)
+  useEffect(() => {
+    if (!resolvedTripId || resolvedTrip) return;
     triggerWorkflow('list_trips', { user_id: 'U001' }).then(res => {
       if (res.success && res.trips?.length) {
-        const sorted = [...res.trips].sort((a, b) => b.end_date.localeCompare(a.end_date));
-        const latest = sorted[0];
-        setResolvedTripId(latest.trip_id);
-        setResolvedTrip(latest);
-      } else {
-        setError('No trips available');
-        setResolving(false);
+        const trip = res.trips.find(t => t.trip_id === resolvedTripId);
+        if (trip) setResolvedTrip(trip);
       }
-    }).catch(() => {
-      setError('Unable to load trips');
-      setResolving(false);
     });
+  }, [resolvedTripId, resolvedTrip]);
+
+  // Show error when no trip_id available
+  useEffect(() => {
+    if (!resolvedTripId) {
+      setLoading(false);
+      setResolving(false);
+      setError('No trip selected');
+    }
   }, [resolvedTripId]);
 
   const fetchSummary = async () => {
@@ -58,7 +69,12 @@ export default function TripDetails() {
       const budget = tripFromNavActive?.budget || 0;
       const res = await triggerWorkflow('trip_summary', { trip_id: resolvedTripId, budget });
       if (res.success) {
-        setSummary(res);
+        setSummary(prev => {
+          if (prev && prev.trip_id === resolvedTripId) {
+            return prev;
+          }
+          return res;
+        });
       } else {
         setError(res.message || res.error || 'Failed to load trip summary');
       }

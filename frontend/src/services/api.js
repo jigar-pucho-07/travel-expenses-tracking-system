@@ -322,8 +322,11 @@ export async function getTripSummaryReal(trip_id, budget) {
       recent_expenses: recent || [],
     };
   } catch (err) {
-    console.error('[WF5] Real call failed, falling back to mock:', err.message);
-    return mockResponse('trip_summary', { trip_id, budget });
+    const message = err.name === 'AbortError'
+      ? 'Trip summary request timed out. Please try again.'
+      : 'Unable to load trip summary. Please try again.';
+    console.error('[WF5] Real call failed:', message, err.message);
+    return { success: false, message };
   }
 }
 
