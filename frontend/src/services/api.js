@@ -270,7 +270,7 @@ export async function addExpenseReal(expenseData) {
 export async function getTripSummaryReal(trip_id, budget) {
   const url = import.meta.env.VITE_WF_TRIP_SUMMARY;
   console.debug('[WF5] Real webhook URL:', url || 'NOT SET');
-  if (!url) { console.debug('[WF5] No URL — falling back to mock'); return callWorkflow('trip_summary', { trip_id, budget }); }
+  if (!url) { return { success: false, message: 'Trip summary service not configured' }; }
 
   try {
     const controller = new AbortController();
@@ -298,8 +298,7 @@ export async function getTripSummaryReal(trip_id, budget) {
 
     const success = parsed.success === true || parsed.success === 'true' || parsed.success === 'True';
     if (!success) {
-      console.warn('[WF5] Real call returned failure, falling back to mock:', parsed);
-      return mockResponse('trip_summary', { trip_id, budget });
+      return { success: false, message: parsed.message || 'Unable to load trip summary' };
     }
 
     let cats = parsed.categories;

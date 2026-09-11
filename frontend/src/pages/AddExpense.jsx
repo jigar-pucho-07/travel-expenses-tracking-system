@@ -61,14 +61,36 @@ export default function AddExpense() {
     }
     setLoading(true);
     try {
-      const res = await addExpenseReal({
+      const payload = {
         ...form,
         trip_id: tripId,
         user_id: user?.user_id || 'U001',
         amount: parseFloat(form.amount),
         source: source,
         receipt_url: receiptUrl,
-      });
+      };
+
+      // Merge detailed OCR fields into payload (OCR mode only)
+      if (source === 'receipt' && extracted) {
+        payload.expense_time     = extracted.time || '';
+        payload.tax              = parseFloat(extracted.tax) || 0;
+        payload.invoice_number   = extracted.invoice_number || '';
+        payload.items            = extracted.items || [];
+        if (extracted.travel_details) {
+          const td = extracted.travel_details;
+          payload.from_location      = td.from || '';
+          payload.to_location        = td.to || '';
+          payload.seat_number        = td.seat_number || '';
+          payload.travel_class       = td.class || '';
+          payload.booking_reference  = td.booking_reference || '';
+          payload.departure_date     = td.departure_date || '';
+          payload.departure_time     = td.departure_time || '';
+          payload.arrival_date       = td.arrival_date || '';
+          payload.arrival_time       = td.arrival_time || '';
+        }
+      }
+
+      const res = await addExpenseReal(payload);
       if (res.success) {
         toast.success('Expense added successfully!');
         navigate('/trips', { state: { tripId } });
