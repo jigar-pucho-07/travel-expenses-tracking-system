@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plane, Plus, CheckCircle } from 'lucide-react';
+import { Plane, Plus, CheckCircle, XCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { triggerWorkflow } from '../services/api';
@@ -12,6 +12,27 @@ function Card({ children, className = '' }) {
 function StatusPill({ status }) {
   const map = { Active: 'bg-ok-bg text-ok', Completed: 'bg-brand-50 text-brand', Cancelled: 'bg-err-bg text-err' };
   return <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${map[status] || 'bg-off-bg text-off'}`}>{status}</span>;
+}
+
+function InfoRow({ label, value }) {
+  if (value === null || value === undefined || value === '') return null;
+  return (
+    <div className="flex justify-between items-center py-1.5">
+      <span className="text-xs text-ink-muted">{label}</span>
+      <span className="text-sm font-medium text-ink">{value}</span>
+    </div>
+  );
+}
+
+function detectTransportType(exp) {
+  if (!exp) return 'transport';
+  const m = (exp.merchant || '').toUpperCase();
+  if (/RAILWAY|IRCTC|TRAIN/i.test(m)) return 'train';
+  if (/AIRLINE|AIRWAYS|AIR\b|FLIGHT|INDIGO|SPICEJET|VISTARA|AIR INDIA|AIRASIA/i.test(m)) return 'flight';
+  if (/BUS\b|DEPOT|GSRTC|TRANSPORT/i.test(m)) return 'bus';
+  if (/METRO/i.test(m)) return 'metro';
+  if (/UBER|OLA|CAB|TAXI/i.test(m)) return 'cab';
+  return 'transport';
 }
 
 export default function TripDetails() {
@@ -32,6 +53,7 @@ export default function TripDetails() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(false);
+  const [selectedExpense, setSelectedExpense] = useState(null);
   const [error, setError] = useState(null);
 
   // Persist current trip_id across browser refreshes
@@ -258,7 +280,9 @@ export default function TripDetails() {
               </thead>
               <tbody className="divide-y divide-line">
                 {(s.recent_expenses || []).map((exp, idx) => (
-                  <tr key={exp.expense_id || `exp-${idx}-${exp.date || ''}-${exp.amount || 0}`} className="hover:bg-canvas-soft transition-colors">
+                  <tr key={exp.expense_id || `exp-${idx}-${exp.date || ''}-${exp.amount || 0}`}
+                      onClick={() => setSelectedExpense(exp)}
+                      className="hover:bg-brand-50/20 cursor-pointer transition-colors">
                     <td className="px-4 py-3 text-ink">{exp.date}</td>
                     <td className="px-4 py-3 text-ink">{exp.category}</td>
                     <td className="px-4 py-3 text-ink">{exp.merchant}</td>
@@ -271,6 +295,152 @@ export default function TripDetails() {
           </div>
         )}
       </Card>
+
+      {/* Expense Detail Modal */}
+      {selectedExpense && (() => {
+        const exp = selectedExpense;
+        const cat = (exp.category || '').toLowerCase();
+        const transportType = cat === 'transportation' ? detectTransportType(exp) : null;
+
+        let items = [];
+        try {
+          if (exp.items_json) {
+            items = typeof exp.items_json === 'string' ? JSON.parse(exp.items_json) : exp.items_json;
+            if (!Array.isArray(items)) items = [];
+          }
+        } catch { items = []; }
+
+        const isFoodHotel = cat === 'food' || cat === 'hotel';
+        const hasTravelFields = exp.from_location || exp.to_location || exp.departure_date || exp.seat_number;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+               onClick={() => setSelectedExpense(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto"
+                 onClick={e => e.stopPropagation()}>
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand">
+                      {exp.category}
+                    </span>
+                    <h3 className="text-lg font-semibold text-ink">{exp.merchant || 'N/A'}</h3>
+                  </div>
+                  <button onClick={() => setSelectedExpense(null)}
+                    className="p-1.5 rounded-xl hover:bg-canvas-soft flex-shrink-0">
+                    <XCircle className="w-5 h-5 text-ink-muted" />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {isFoodHotel && (<>
+                    <InfoRow label="Date" value={exp.date} />
+                    <InfoRow label="Time" value={exp.expense_time} />
+                    {items.length > 0 && (
+                      <div className="py-2">
+                        <p className="text-xs font-semibold text-ink-muted mb-2 uppercase tracking-wide">Items</p>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-ink-muted border-b border-line">
+                              <th className="text-left py-1.5 font-medium">Item</th>
+                              <th className="text-center py-1.5 font-medium">Qty</th>
+                              <th className="text-right py-1.5 font-medium">Unit</th>
+                              <th className="text-right py-1.5 font-medium">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.map((item, i) => (
+                              <tr key={i} className="border-b border-line/50">
+                                <td className="py-1.5 text-ink">{item.name || '-'}</td>
+                                <td className="text-center py-1.5 text-ink">{item.quantity || 1}</td>
+                                <td className="text-right py-1.5 text-ink">₹{(item.unit_price || 0).toLocaleString('en-IN')}</td>
+                                <td className="text-right py-1.5 text-ink font-medium">₹{(item.total_price || 0).toLocaleString('en-IN')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {!items.length && (
+                      <p className="text-xs text-ink-muted italic py-2">No itemized details available.</p>
+                    )}
+                    {(exp.tax > 0) && <InfoRow label="Tax" value={`₹${exp.tax.toLocaleString('en-IN')}`} />}
+                    {exp.invoice_number && <InfoRow label="Invoice Number" value={exp.invoice_number} />}
+                    {exp.status && <InfoRow label="Status" value={exp.status} />}
+                    <div className="pt-2 border-t border-line" />
+                    <div className="flex justify-between items-center py-1.5">
+                      <span className="text-xs font-semibold text-ink-muted">Final Total</span>
+                      <span className="text-base font-bold text-brand">₹{(exp.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  </>)}
+
+                  {cat === 'transportation' && (hasTravelFields || transportType !== 'transport') && (() => {
+                    const tt = transportType;
+                    const travelFields = (
+                      <div className="space-y-1.5">
+                        {tt !== 'flight' && tt !== 'bus' && <InfoRow label="Railway / Train" value={exp.merchant} />}
+                        {tt === 'flight' && <><InfoRow label="Airline" value={exp.merchant} />{exp.booking_reference && <InfoRow label="Booking Reference" value={exp.booking_reference} />}</>}
+                        {tt === 'bus' && <InfoRow label="Bus Operator" value={exp.merchant} />}
+                        {tt !== 'cab' && tt !== 'metro' && <><InfoRow label="From" value={exp.from_location} /><InfoRow label="To" value={exp.to_location} /></>}
+                        {(tt === 'train' || tt === 'flight' || tt === 'bus') && <><InfoRow label="Journey / Departure Date" value={exp.departure_date} /><InfoRow label="Departure Time" value={exp.departure_time} /><InfoRow label="Arrival Date" value={exp.arrival_date} /><InfoRow label="Arrival Time" value={exp.arrival_time} /><InfoRow label="Seat / Coach" value={exp.seat_number} /></>}
+                        <InfoRow label="Travel Class" value={exp.travel_class} />
+                        {(tt === 'train' || tt === 'bus') && <InfoRow label="PNR / Reference" value={exp.booking_reference} />}
+                        <InfoRow label="Tax" value={exp.tax > 0 ? `₹${exp.tax.toLocaleString('en-IN')}` : exp.tax === 0 ? '₹0' : null} />
+                        <div className="pt-2 border-t border-line" />
+                        <div className="flex justify-between items-center py-1.5">
+                          <span className="text-xs font-semibold text-ink-muted">Amount</span>
+                          <span className="text-base font-bold text-brand">₹{(exp.amount || 0).toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    );
+                    return travelFields;
+                  })()}
+
+                  {cat === 'transportation' && !hasTravelFields && transportType === 'transport' && (<div className="space-y-1.5">
+                    <InfoRow label="Date" value={exp.date} />
+                    <div className="pt-2 border-t border-line" />
+                    <div className="flex justify-between items-center py-1.5">
+                      <span className="text-xs font-semibold text-ink-muted">Amount</span>
+                      <span className="text-base font-bold text-brand">₹{(exp.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>)}
+
+                  {cat === 'cab' && (<div className="space-y-1.5">
+                    <InfoRow label="Cab Provider" value={exp.merchant} />
+                    <InfoRow label="Pickup" value={exp.from_location} />
+                    <InfoRow label="Drop" value={exp.to_location} />
+                    <InfoRow label="Date" value={exp.date} />
+                    <InfoRow label="Time" value={exp.expense_time} />
+                    <InfoRow label="Trip Reference" value={exp.booking_reference} />
+                    <InfoRow label="Tax" value={exp.tax > 0 ? `₹${exp.tax.toLocaleString('en-IN')}` : exp.tax === 0 ? '₹0' : null} />
+                    <div className="pt-2 border-t border-line" />
+                    <div className="flex justify-between items-center py-1.5">
+                      <span className="text-xs font-semibold text-ink-muted">Fare</span>
+                      <span className="text-base font-bold text-brand">₹{(exp.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>)}
+
+                  {!isFoodHotel && cat !== 'transportation' && cat !== 'cab' && (<div className="space-y-1.5">
+                    <InfoRow label="Merchant" value={exp.merchant} />
+                    <InfoRow label="Date" value={exp.date} />
+                    <InfoRow label="Time" value={exp.expense_time} />
+                    <InfoRow label="Description" value={exp.description} />
+                    <InfoRow label="Tax" value={exp.tax > 0 ? `₹${exp.tax.toLocaleString('en-IN')}` : exp.tax === 0 ? '₹0' : null} />
+                    <InfoRow label="Invoice Number" value={exp.invoice_number} />
+                    {exp.status && <InfoRow label="Status" value={exp.status} />}
+                    <div className="pt-2 border-t border-line" />
+                    <div className="flex justify-between items-center py-1.5">
+                      <span className="text-xs font-semibold text-ink-muted">Amount</span>
+                      <span className="text-base font-bold text-brand">₹{(exp.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
